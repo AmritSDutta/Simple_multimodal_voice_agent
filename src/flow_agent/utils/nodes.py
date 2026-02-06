@@ -4,35 +4,17 @@ from typing import List
 
 from google.genai import types
 from google.genai.chats import AsyncChat
-from google.genai.types import GenerateContentResponse
-from langchain_core.messages import AIMessage, BaseMessage, convert_to_messages, get_buffer_string
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.constants import END
 from langgraph.runtime import Runtime
 from langgraph_api.schema import Context
 
+from src.flow_agent.llms.LangChainChatLLM import get_chat_llm
 from src.flow_agent.llms.genai_agent import get_summarizer_agent
 from src.flow_agent.utils.state import State
 
-
-async def entry_node(state: State):
-    print(state.get("messages"))
-    if state.get("ended_once"):
-        # Mark as closed
-        return {"ended_once": True, "messages": AIMessage('Use another thread for run. It is already ended')}
-    return state
-
-
-async def should_continue(state: State):
-    """Conditional edge: check if closed"""
-    if state.get("ended_once"):
-        logging.info("Thread already closed, skipping execution")
-        return END
-
-    return "reasoning"  # Normal flow
-
-
-async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -> State:
-    """
+'''
     # 1. Extract the specific HumanMessage containing the multimodal data
     General structure with image:
     [
@@ -55,7 +37,87 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
     ]
 
     Assuming the latest message is index -1
-    """
+'''
+
+
+async def entry_node(state: State):
+    print(state.get("messages"))
+    if state.get("ended_once"):
+        # Mark as closed
+        return {"ended_once": True, "messages": AIMessage('Use another thread for run. It is already ended')}
+    return state
+
+
+async def should_continue(state: State):
+    """Conditional edge: check if closed"""
+    if state.get("ended_once"):
+        logging.info("Thread already closed, skipping execution")
+        return END
+
+    return "reasoning"  # Normal flow
+
+
+async def call_langchain_reasoning_model(state: State, runtime: Runtime[Context]) -> State:
+    messages = state.get("messages")
+    human_msg = messages[-1]
+    content = human_msg.content
+    text_prompt = "Analyze this input."
+    media_b64s = []  # List of base64 strings for images
+    mime_type: str | None = None
+
+    # Extract text/media from input
+    if isinstance(content, list):
+        for item in content:
+            if item.get('type') == 'text':
+                text_prompt = item.get('text')
+            elif item.get('type') in ['image', 'audio', 'video']:
+                data = item.get('data')
+                if data:
+                    media_b64s.append(data)
+                    mime_type = item.get('mime_type')
+                    logging.info(f"Media: {mime_type}")
+
+    # Initialize ChatOpenAI with vision model
+    provider: str = 'gemini'
+    llm: BaseChatModel = await get_chat_llm('gemini')
+
+    # Build multimodal message content
+    message_content = [
+        {"type": "text", "text": text_prompt}
+    ]
+
+    # Add images to content array
+    if media_b64s:
+        for b64_image in media_b64s[:4]:  # Limit to 4 images
+            message_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{b64_image}"
+                }
+            })
+
+    # Create multimodal message
+    multimodal_msg = HumanMessage(content=message_content)
+
+    # Invoke the model
+    response = await llm.ainvoke([multimodal_msg])
+
+    return process_response(state, response, text_prompt)
+
+
+def process_response(state: State, response: AIMessage, user_input: str = '') -> State:
+    summary = response.content or "No response"
+    new_msg = AIMessage(content=f"Issue summary: {summary}")
+    return {
+        "retry_count": 0,
+        "issue": user_input,
+        "messages": [new_msg],
+        "ended_once": False,
+        "final_report": summary[-1]
+    }
+
+
+async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -> State:
     messages: list[BaseMessage] = state.get("messages")
     human_msg = messages[-1]
     content = human_msg.content

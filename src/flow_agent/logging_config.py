@@ -44,11 +44,11 @@ def setup_logging():
         handlers=[handler],
         force=True,   # <-- crucial to override uvicorn/langgraph setup
     )
-
+    logging.getLogger('httpx').setLevel(logging.DEBUG)
     # 4. Silence noisy libraries
     noisy = [
         "uvicorn", "uvicorn.access",
-        "httpx",
+        # "httpx",
         "langgraph",
         "langgraph_runtime_inmem",
         "langchain",
