@@ -5,7 +5,7 @@ from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 
 from src.flow_agent.logging_config import setup_logging
-from src.flow_agent.utils.nodes import call_summarizer_model, entry_node, should_continue
+from src.flow_agent.utils.nodes import entry_node, should_continue, call_gemini_reasoning_model
 from src.flow_agent.utils.state import State
 
 setup_logging()
@@ -19,7 +19,7 @@ class Context(TypedDict):
 graph = (
     StateGraph(State, context_schema=Context)
     .add_node("entry", entry_node)
-    .add_node("reasoning", call_summarizer_model)
+    .add_node("reasoning", call_gemini_reasoning_model)
     .add_edge(START, "entry")
     .add_conditional_edges('entry', should_continue, {"reasoning": "reasoning", END: END})
     .add_edge("reasoning", END)
