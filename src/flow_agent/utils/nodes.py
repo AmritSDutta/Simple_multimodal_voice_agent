@@ -5,7 +5,7 @@ from typing import List
 from google.genai import types
 from google.genai.chats import AsyncChat
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, UsageMetadata
 from langgraph.constants import END
 from langgraph.runtime import Runtime
 from langgraph_api.schema import Context
@@ -78,8 +78,8 @@ async def call_langchain_reasoning_model(state: State, runtime: Runtime[Context]
                     logging.info(f"Media: {mime_type}")
 
     # Initialize ChatOpenAI with vision model
-    provider: str = 'gemini'
-    llm: BaseChatModel = await get_chat_llm('gemini')
+    provider: str = 'zai'
+    llm: BaseChatModel = await get_chat_llm(provider)
 
     # Build multimodal message content
     message_content = [
@@ -101,6 +101,7 @@ async def call_langchain_reasoning_model(state: State, runtime: Runtime[Context]
 
     # Invoke the model
     response = await llm.ainvoke([multimodal_msg])
+    logging.info(f'provider: {provider}, usage: {response.usage_metadata}')
 
     return process_response(state, response, text_prompt)
 

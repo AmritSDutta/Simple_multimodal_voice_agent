@@ -13,8 +13,15 @@ async def get_chat_llm(
     llm: BaseChatModel | None = None
     if provider.lower() == 'openai':
         llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
-    if provider.lower() == 'gemini':
+    elif provider.lower() == 'gemini':
         llm = ChatGoogleGenerativeAI(model="gemma-3-27b-it", temperature=0)
+    elif provider.lower() == 'zhipu' or provider.lower() == 'zai':
+        llm = ChatOpenAI(
+            temperature=0.6,
+            model="GLM-4.6V-Flash",
+            openai_api_key=os.getenv("ZAI_API_KEY"),
+            openai_api_base="https://api.z.ai/api/paas/v4/"
+        )
     else:
         llm = ChatOllama(
             model='qwen3-vl:235b-instruct-cloud',
