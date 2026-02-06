@@ -33,7 +33,7 @@ async def get_chat_llm(
             }
         )
     logging.info(f"Using {provider} -  model")
-    llm.bind_tools([DuckDuckGoSearchRun()])
+    llm = llm.bind_tools([DuckDuckGoSearchRun()])
     return llm
 
 

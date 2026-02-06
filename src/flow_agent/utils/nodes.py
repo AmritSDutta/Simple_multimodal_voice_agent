@@ -78,7 +78,7 @@ async def call_langchain_reasoning_model(state: State, runtime: Runtime[Context]
                     logging.info(f"Media: {mime_type}")
 
     # Initialize ChatOpenAI with vision model
-    provider: str = 'zai'
+    provider: str = 'ollama'
     llm: BaseChatModel = await get_chat_llm(provider)
 
     # Build multimodal message content
@@ -114,7 +114,7 @@ def process_response(state: State, response: AIMessage, user_input: str = '') ->
         "issue": user_input,
         "messages": [new_msg],
         "ended_once": False,
-        "final_report": summary[-1]
+        "final_report": summary
     }
 
 
