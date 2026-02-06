@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import os
 import time
 import requests
 
@@ -163,19 +164,41 @@ def extract_text_from_final_report(final_report_data) -> str:
 # -------------------------------------------------------------------
 # Text-to-Speech helper
 # -------------------------------------------------------------------
-def text_to_speech(text: str) -> bytes | None:
-    """Convert text to audio using Streamlit's built-in capabilities."""
+def text_to_speech(text: str) -> list | None:
+    """Convert text to audio using SarvamAI TTS."""
+    from sarvamai import TextToSpeechResponse
+
     try:
-        st.info(f"🔊 Text-to-Speech: {text[:100]}...")
-        # Note: For actual TTS, you would integrate a service like:
-        # - Google Cloud TTS
-        # - AWS Polly
-        # - Azure Speech Services
-        # - OpenAI TTS API
-        # For now, we display the text visually
-        return None
+        st.info(f"🔊 Generating speech for: {text[:100]}...")
+        from sarvamai import SarvamAI
+
+        client = SarvamAI(
+            api_subscription_key=os.getenv('SARVAM_API_KEY'),
+        )
+
+        response: TextToSpeechResponse = client.text_to_speech.convert(
+            text=text,
+            target_language_code="en-IN",
+            speaker="shubh",
+            pace=1.1,
+            speech_sample_rate=22050,
+            enable_preprocessing=True,
+            model="bulbul:v3",
+            temperature=0.6
+        )
+
+        # Debug: Check what we actually get back
+        print(f'Response type: {type(response)}')
+        print(f'Response dict: {response.__dict__ if hasattr(response, "__dict__") else response}')
+        print(f'Audios type: {type(response.audios)}')
+        print(f'First audio type: {type(response.audios[0]) if response.audios else "empty"}')
+        print(f'First audio length: {len(response.audios[0]) if response.audios else "empty"}')
+
+        return response.audios
     except Exception as e:
         st.error(f"TTS error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         return None
 
 
@@ -328,6 +351,7 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
             except Exception as e:
                 st.error(f"Error fetching thread state: {e}")
                 import traceback
+
                 st.code(traceback.format_exc())
                 response_text = "No response generated."
 
@@ -337,13 +361,32 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
 
             # Text-to-speech button
             if st.button("🔊 Read Aloud", key="read_aloud"):
-                text_to_speech(response_text)
+                with st.spinner("Generating audio..."):
+                    audio_list = text_to_speech(response_text)
+                    if audio_list:
+                        # Sarvam TTS returns list of audio data (base64 or URLs)
+                        for audio_data in audio_list:
+                            # Check if it's a URL or base64 data
+                            if audio_data.startswith(('http://', 'https://')):
+                                st.audio(audio_data)
+                            elif isinstance(audio_data, str):
+                                # Assume base64 encoded audio
+                                import base64
+                                try:
+                                    audio_bytes = base64.b64decode(audio_data)
+                                    st.audio(audio_bytes)
+                                except Exception:
+                                    # If base64 decode fails, try playing as-is
+                                    st.audio(audio_data)
+                            else:
+                                st.audio(audio_data)
+                    else:
+                        st.warning("No audio generated.")
 
         else:
             st.error(f"❌ Run finished with status: {status}")
             with st.expander("View error details"):
                 st.code(json.dumps(run_state, indent=2))
-
 
 # Display last output if available
 if st.session_state.last_output:
@@ -358,8 +401,23 @@ if st.session_state.last_output:
 
         # TTS for previous response
         if st.button("🔊 Read Previous Aloud", key="read_previous_aloud"):
-            text_to_speech(st.session_state.last_response_text)
-
+            with st.spinner("Generating audio..."):
+                audio_list = text_to_speech(st.session_state.last_response_text)
+                if audio_list:
+                    for audio_data in audio_list:
+                        if audio_data.startswith(('http://', 'https://')):
+                            st.audio(audio_data)
+                        elif isinstance(audio_data, str):
+                            import base64
+                            try:
+                                audio_bytes = base64.b64decode(audio_data)
+                                st.audio(audio_bytes)
+                            except Exception:
+                                st.audio(audio_data)
+                        else:
+                            st.audio(audio_data)
+                else:
+                    st.warning("No audio generated.")
 
 # Footer
 st.markdown("---")
