@@ -1,5 +1,5 @@
 [project]
-name = "flow-check-agent"
+name = "simple_multimodal_voice_agent"
 version = "1.0.0"
 description = "Starter template for making a new agent LangGraph."
 authors = [
@@ -13,7 +13,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "langchain-core>=1.0.5",
     "pydantic>=2.0",
-    "google-genai>=1.49.0",
+    "google-genai>=1.51.0",
     "openai-agents>=0.5.1",
     "langgraph-api>=0.5.14"
 
@@ -68,5 +68,5 @@ dev = [
     "flake8>=7.1.1",
     "google-genai=1.49.0",
     "openai-agents=0.5.1",
-    "langgraph-api=0.5.14"
+    "langgraph-api=0.7.2"
 ]

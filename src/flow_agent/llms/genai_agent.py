@@ -11,11 +11,8 @@ You are a helpful agent.
 """
 
 _GENAI_SUMMARIZER_PROMPT = """
-You are a helpful summarizer agent.
-whatever text passed to you please create a concrete summary where no specific 
-events or events description, dates, numbers are missed.
-Priorities are always assigned on issue not on user.
-what can be summarized maximum  are emotions, greetings, lengthy descriptions.
+You are a helpful reasoning agent.
+Try to provide appropriate response to the user query
 """
 
 # Define safety settings for ALL categories
@@ -42,18 +39,24 @@ _safety_settings = [
     ),
 ]
 
-
 # ---------- Gemini chat singletons ----------
-def _create_client() -> AsyncClient:
-    return genai.Client().aio
+_global_client: AsyncClient | None = None
+
+
+def _get_client() -> AsyncClient:
+    global _global_client
+    if _global_client is None:
+        # Initialize the client once
+        _global_client = genai.Client().aio
+    return _global_client
 
 
 async def get_summarizer_agent() -> AsyncChat:
-    _llm_client: AsyncClient = _create_client()
+    _llm_client: AsyncClient = _get_client()
     return _llm_client.chats.create(
-                    model=SUMMARIZER_MODEL_DEFAULT,
-                    config=types.GenerateContentConfig(
-                        system_instruction=_GENAI_SUMMARIZER_PROMPT,
-                        safety_settings=_safety_settings
-                    )
-                )
+        model=SUMMARIZER_MODEL_DEFAULT,
+        config=types.GenerateContentConfig(
+            system_instruction=_GENAI_SUMMARIZER_PROMPT,
+            safety_settings=_safety_settings
+        )
+    )
