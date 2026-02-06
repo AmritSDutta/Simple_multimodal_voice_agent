@@ -162,6 +162,107 @@ def extract_text_from_final_report(final_report_data) -> str:
 
 
 # -------------------------------------------------------------------
+# Speech-to-Text helper (SarvamAI)
+# -------------------------------------------------------------------
+def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | None:
+    """Convert audio to text using SarvamAI STT job-based API."""
+    import tempfile
+    import os
+
+    try:
+        st.info("🎤 Transcribing audio...")
+
+        from sarvamai import SarvamAI
+
+        client = SarvamAI(
+            api_subscription_key=os.getenv('SARVAM_API_KEY'),
+        )
+
+        # Create STT job
+        job = client.speech_to_text_job.create_job(
+            language_code="en-IN",
+            model="saaras:v3",
+            with_timestamps=False,
+            with_diarization=False,
+        )
+
+        # Save audio to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            temp_file.write(audio_bytes)
+            temp_file_path = temp_file.name
+
+        try:
+            # Upload audio file
+            job.upload_files(file_paths=[temp_file_path])
+
+            # Start the job
+            job.start()
+
+            # Wait for completion with progress indicator
+            progress_placeholder = st.empty()
+            progress_placeholder.info("⏳ Processing audio...")
+
+            final_status = job.wait_until_complete()
+
+            progress_placeholder.empty()
+
+            if job.is_failed():
+                st.error("❌ STT job failed.")
+                return None
+
+            # Get transcript - parse output files
+            import json
+            output_dir = tempfile.mkdtemp()
+            job.download_outputs(output_dir=output_dir)
+
+            # Look for transcript JSON file
+            transcript = ""
+            for root, dirs, files in os.walk(output_dir):
+                for file in files:
+                    if file.endswith('.json'):
+                        json_path = os.path.join(root, file)
+                        with open(json_path, 'r') as f:
+                            data = json.load(f)
+                            # Extract transcript from JSON structure
+                            if 'transcript' in data:
+                                transcript = data['transcript']
+                            elif 'segments' in data:
+                                # Combine segments
+                                transcript = " ".join([seg.get('text', '') for seg in data['segments']])
+                            break
+                if transcript:
+                    break
+
+            # Clean up temp files
+            os.unlink(temp_file_path)
+            for root, dirs, files in os.walk(output_dir, topdown=False):
+                for file in files:
+                    os.unlink(os.path.join(root, file))
+                for dir in dirs:
+                    os.rmdir(os.path.join(root, dir))
+            os.rmdir(output_dir)
+
+            if not transcript:
+                st.warning("⚠️ No transcript found in output")
+                return None
+
+            st.success(f"✅ Transcribed: {transcript[:100]}...")
+            return transcript
+
+        except Exception as e:
+            # Clean up temp file on error
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+            raise e
+
+    except Exception as e:
+        st.error(f"STT error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        return None
+
+
+# -------------------------------------------------------------------
 # Text-to-Speech helper
 # -------------------------------------------------------------------
 def text_to_speech(text: str) -> list | None:
@@ -274,12 +375,25 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
 
     # Build multimodal content
     text_input = issue_text.strip() if issue_text.strip() else "Please analyze the uploaded content."
-    audio_bytes = audio_input.getvalue() if audio_input else None
+
+    # Transcribe audio input if present
+    if audio_input:
+        audio_bytes = audio_input.getvalue()
+        transcribed_text = speech_to_text(audio_bytes)
+        if transcribed_text:
+            # Append transcribed text to input
+            if text_input and text_input != "Please analyze the uploaded content.":
+                text_input = f"{text_input}\n\n[Voice input transcribed]: {transcribed_text}"
+                issue_text.update(text_input)
+            else:
+                text_input = transcribed_text
+        else:
+            st.warning("⚠️ Failed to transcribe audio, continuing with text input only")
 
     multimodal_content = build_multimodal_content(
         text=text_input,
         images=uploaded_images,
-        audio=audio_bytes
+        audio=None  # Don't send raw audio, we send transcribed text
     )
 
     # Prepare input payload
