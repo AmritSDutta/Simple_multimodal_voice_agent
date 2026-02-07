@@ -28,7 +28,7 @@ def _get_random_provider():
 
 async def get_chat_llm(provider: str | None = None) -> BaseChatModel | Runnable:
     """
-    A trivial LLM routing technique, random distribution with prefixed distribution
+    A trivial LLM routing technique, random distribution with prefixed distribution.
     """
     if provider is None:
         provider = _get_random_provider()
