@@ -1,6 +1,7 @@
 import base64
 import logging
-from typing import List
+from asyncio import sleep
+from typing import List, Any
 
 from google.genai import types
 from google.genai.chats import AsyncChat
@@ -10,6 +11,7 @@ from langgraph.constants import END
 from langgraph.runtime import Runtime
 from langgraph_api.schema import Context
 
+from src.flow_agent.config import settings
 from src.flow_agent.llms.LangChainChatLLM import get_chat_llm
 from src.flow_agent.llms.genai_agent import get_summarizer_agent
 from src.flow_agent.utils.state import State
@@ -25,7 +27,7 @@ from src.flow_agent.utils.state import State
             },
             {
                 'type': 'image',
-                'data': 'iVBORw0KGgoAAAANSUhEUgAAEsAAAAuQCAYAAACqz00AAAAA...sir35/shEAAAAASUVORK5CYII=',
+                'data': 'iVBORw0KGgoAAA...sir35/shEAAAAASUVORK5CYII=',
                 'metadata': {'filename': 'Amrit Shankar Dutta - Feature Engineering.png'},
                 'source_type': 'base64',
                 'mime_type': 'image/png'
@@ -41,7 +43,17 @@ from src.flow_agent.utils.state import State
 
 
 async def entry_node(state: State):
-    logging.info(state.get("messages"))
+    messages: list[BaseMessage] = state.get("messages")
+    if messages:
+        human_msg = messages[-1]
+        content = human_msg.content
+        if isinstance(content, list):
+            for item in content:
+                if item.get("type") == "text":
+                    logging.info(f'user req: {item.get("text")}')
+                elif item.get("type") != 'text':
+                    logging.info(f'found {item.get("type")} media: {item.get("metadata")}')
+
     if state.get("ended_once"):
         # Mark as closed
         return {
@@ -61,7 +73,7 @@ async def should_continue(state: State):
 
 
 async def call_langchain_reasoning_model(
-    state: State, runtime: Runtime[Context]
+        state: State, runtime: Runtime[Context]
 ) -> State:
     messages = state.get("messages")
     human_msg = messages[-1]
@@ -83,12 +95,10 @@ async def call_langchain_reasoning_model(
                     logging.info(f"Media: {mime_type}")
 
     # Initialize ChatOpenAI with vision model
-    provider: str = "ollama"
-    llm: BaseChatModel = await get_chat_llm(provider)
-
-    # Build multimodal message content
+    llm: BaseChatModel = await get_chat_llm()
+    msg_content = await prepare_llm_input(text_prompt, media_b64s)
+    '''
     message_content = [{"type": "text", "text": text_prompt}]
-
     # Add images to content array
     if media_b64s:
         for b64_image in media_b64s[:4]:  # Limit to 4 images
@@ -98,15 +108,56 @@ async def call_langchain_reasoning_model(
                     "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
                 }
             )
+    '''
+    multimodal_msg = HumanMessage(content=msg_content)
 
-    # Create multimodal message
-    multimodal_msg = HumanMessage(content=message_content)
-
-    # Invoke the model
-    response = await llm.ainvoke([multimodal_msg])
-    logging.info(f"provider: {provider}, usage: {response.usage_metadata}")
-
+    response = await call_llm_safely(llm, multimodal_msg)
     return process_response(state, response, text_prompt)
+
+
+async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> list[dict[str, str | None | Any]]:
+    """
+    prepare multimodal or text based message for llm depending on the parameter
+    """
+    message_content = [{"type": "text", "text": text_prompt}]
+    # Add images to content array
+    if media_b64s:
+        for b64_image in media_b64s[:4]:  # Limit to 4 images
+            message_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
+                }
+            )
+    return message_content
+
+
+async def call_llm_safely(llm: BaseChatModel, multimodal_msg: HumanMessage) -> Any:
+    """
+    A trivial circuit breaker with exponential backoff
+    """
+    sleep_time = settings.SLEEP
+    response = None
+    for i in range(settings.MAX_TRY):
+        try:
+            response = await llm.ainvoke([multimodal_msg])
+            logging.info(f"response details: {response.response_metadata}")
+            return response
+        except Exception as e:
+            logging.warning(f"Attempt {i + 1} failed: {e}")
+            await sleep(sleep_time)
+            sleep_time *= 2
+            if i == settings.MAX_TRY - 1:
+                logging.error(f"Attempt exhausted: {e}, trying alternative")
+                try:
+                    llm = await get_chat_llm('openai')
+                    response = await llm.ainvoke([multimodal_msg])
+                    return response
+                except Exception as ae:
+                    logging.error(f"trying alternative failed too: {ae}")
+                    raise ae
+
+    return response
 
 
 def process_response(state: State, response: AIMessage, user_input: str = "") -> State:
