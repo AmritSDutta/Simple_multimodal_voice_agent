@@ -40,6 +40,32 @@ class Settings(BaseSettings):
 
     REASONING_NODE_PREFERENCE: str = 'langchain'
 
+    # Speech Service Configuration
+    SPEECH_PROVIDER: str = "sarvam"  # Default provider
+    SPEECH_PROVIDER_IDENTIFIER: str = 'sarvam'
+
+    # SarvamAI Configuration
+    SARVAM_STT_MODEL: str = "saaras:v3"
+    SARVAM_TTS_MODEL: str = "bulbul:v3"
+    SARVAM_LANGUAGE: str = "en-IN"
+    SARVAM_SPEAKER: str = "shubh"
+    SARVAM_TTS_PACE: float = 1.1
+    SARVAM_TTS_SAMPLE_RATE: int = 22050
+
+    GENAI_STT_MODEL: str = "gemini-3-flash-preview"
+    GENAI_TTS_MODEL: str = "gemini-2.5-flash-preview-tts"
+    GENAI_LANGUAGE: str = "en-IN"
+    GENAI_SPEAKER: str = "Kore"
+    GENAI_TTS_PACE: float = 1.1
+    GENAI_TTS_SAMPLE_RATE: int = 24000
+
+    OPENAI_STT_MODEL: str = "whisper-1"
+    OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
+    OPENAI_LANGUAGE: str = "en-IN"
+    OPENAI_SPEAKER: str = "coral"
+    OPENAI_TTS_PACE: float = 1.1
+    OPENAI_TTS_SAMPLE_RATE: int = 24000
+
 
 # Global settings instance
 settings = Settings()

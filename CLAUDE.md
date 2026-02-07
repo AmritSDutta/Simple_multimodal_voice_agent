@@ -94,8 +94,18 @@ pytest -v
 
 **Test Structure:**
 - `tests/conftest.py` - Test configuration (adds src to Python path)
-- `tests/unit_tests/` - Unit test directory (currently empty)
+  - `resources_path` fixture - Path to test resources directory
+  - `image_to_base64_fixture` - Helper for encoding test images
+  - `custom_settings` fixture - Override settings via environment variables during tests
+- `tests/unit_tests/` - Unit test directory (currently has `test_langchain_llm.py`)
 - `tests/end_to_end/` - End-to-end test directory (currently has `test_graph.py`)
+
+**Test Fixtures Usage:**
+```python
+async def test_something(custom_settings):
+    custom_settings.set("REASONING_NODE_PREFERENCE", "genai")
+    # ... test code using the custom setting
+```
 
 ## Architecture
 
@@ -179,6 +189,7 @@ HumanMessage(content=[
 - Extracts media from `content[i]['type'] in ['image', 'audio', 'video']`
 - Supports up to 4 images per request (LangChain interface)
 - Converts base64 data for LLM consumption
+- Handles both string and list content formats for backward compatibility
 
 **Note on Audio Processing:**
 Audio is transcribed to text via SarvamAI STT in the UI before being sent to the graph. The graph receives the transcribed text as part of the human message, not raw audio data.
@@ -214,6 +225,7 @@ Streamlit-based UI that communicates with the LangGraph API via REST:
 
 **Deployment Configuration:**
 - `DEPLOYMENT_URL`: Default `http://localhost:8123` (Docker Compose port)
+  - **Note**: The ui/app.py file may have a different default port (e.g., 2024) - ensure this matches your LangGraph API port
 - `ASSISTANT_ID`: `"agent"` (must match `langgraph.json` graph name)
 
 ### Logging (`src/flow_agent/logging_config.py`)
@@ -253,8 +265,11 @@ When adding new dependencies, remember to:
 The project uses a `.env` file for configuration (not tracked in git):
 - `ZAI_API_KEY` - For Zhipu/Zai provider
 - `OLLAMA_API_KEY` - For Ollama provider
+- `OPENAI_API_KEY` - For OpenAI provider (also used as fallback)
+- `GOOGLE_API_KEY` - For Google Gemini models (used by both LangChain and native GenAI SDK)
 - `SARVAM_API_KEY` - For SarvamAI speech services (STT/TTS)
-- Google Genai credentials (auto-configured via SDK)
+- `LANGSMITH_API_KEY` - Optional, for LangSmith tracing and monitoring
+- `LANGCHAIN_PROJECT` - LangSmith project name (e.g., `multimodal_voice_agent`)
 
 ## Running the Streamlit UI
 
@@ -291,7 +306,15 @@ The graph selects the reasoning node based on `settings.REASONING_NODE_PREFERENC
 - `'langchain'` (default) - Uses `call_langchain_reasoning_model`
 - `'genai'` - Uses `call_gemini_reasoning_model`
 
-Change this in `src/flow_agent/config.py`:
+**Important gotcha**: When testing different nodes, you must patch settings in multiple places because the graph is compiled at import time:
+```python
+# In tests, patch both modules
+with patch("src.flow_agent.graph.settings", custom_settings), \
+     patch("src.flow_agent.utils.nodes.settings", custom_settings):
+    # ... test code
+```
+
+To change the node for development, edit `src/flow_agent/config.py`:
 ```python
 REASONING_NODE_PREFERENCE: str = 'genai'  # or 'langchain'
 ```
@@ -304,3 +327,11 @@ The `call_llm_safely` function implements:
 
 ### Response Processing
 The `process_response` helper function sets `final_report` to the full `summary` string (corrected from the previous `summary[-1]` bug).
+
+### Debug Mode
+The UI includes a debug expander that shows raw `final_report` JSON:
+```python
+with st.expander("🔍 Debug: Raw final_report"):
+    st.code(json.dumps(final_report_raw, indent=2, default=str))
+```
+This is invaluable for debugging but exposes internal state structure.

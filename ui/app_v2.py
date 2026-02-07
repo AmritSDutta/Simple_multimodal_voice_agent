@@ -1,11 +1,25 @@
+"""
+Streamlit UI for Multimodal Voice Agent (Refactored Speech Service)
+
+This version uses the refactored speech service package from src/flow_agent/speech
+which separates business logic from UI concerns for better testability and reusability.
+"""
+
+import asyncio
 import json
-import logging
-import os
+import sys
+from pathlib import Path
 import time
 
 import requests
 import streamlit as st
-from sarvamai import JobStatusV1Response
+
+# Add project root to Python path for imports
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+# Import speech service from refactored package
+from src.flow_agent.speech import get_speech_service
 
 # -------------------------------------------------------------------
 # Config
@@ -29,6 +43,8 @@ def build_multimodal_content(
     text: str, images: list = None, audio: bytes = None
 ) -> list:
     """Build multimodal content array in the format expected by the graph."""
+    import base64
+
     content = [{"type": "text", "text": text}]
 
     # Add images
@@ -171,167 +187,101 @@ def extract_text_from_final_report(final_report_data) -> str:
 
 
 # -------------------------------------------------------------------
-# Speech-to-Text helper (SarvamAI)
+# Speech service wrappers with UI feedback
 # -------------------------------------------------------------------
-def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | None:
-    """Convert audio to text using SarvamAI STT job-based API."""
-    import os
-    import tempfile
+def speech_to_text_with_ui(audio_bytes: bytes, file_extension: str = ".webm") -> str | None:
+    """Convert audio to text with UI feedback (sync wrapper).
 
-    try:
-        st.info("🎤 Transcribing audio...")
-
-        from sarvamai import SarvamAI
-
-        client = SarvamAI(
-            api_subscription_key=os.getenv("SARVAM_API_KEY"),
-        )
-
-        # Create STT job
-        job = client.speech_to_text_job.create_job(
-            language_code="en-IN",
-            model="saaras:v3",
-            with_timestamps=False,
-            with_diarization=False,
-        )
-
-        # Save audio to temp file
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=file_extension
-        ) as temp_file:
-            temp_file.write(audio_bytes)
-            temp_file_path = temp_file.name
-
+    Wrapper around the speech service that provides Streamlit UI feedback.
+    Uses asyncio.run to call the async service methods.
+    """
+    async def _async_wrapper():
         try:
-            # Upload audio file
-            job.upload_files(file_paths=[temp_file_path])
+            st.info("🎤 Transcribing audio...")
 
-            # Start the job
-            job.start()
+            # Get speech service and perform transcription
+            speech_service = await get_speech_service()
+            transcript = await speech_service.speech_to_text(audio_bytes, file_extension)
 
-            # Wait for completion with progress indicator
-            progress_placeholder = st.empty()
-            progress_placeholder.info("⏳ Processing audio...")
-
-            final_status: JobStatusV1Response = job.wait_until_complete()
-
-            progress_placeholder.empty()
-
-            if job.is_failed():
-                logging.info(f"failed reason: {final_status.error_message}")
-                st.error("❌ STT job failed.")
+            if transcript:
+                st.success(f"✅ Transcribed: {transcript[:100]}...")
+                return transcript
+            else:
+                st.warning("⚠️ No transcript generated")
                 return None
-
-            # Get transcript - parse output files
-            import json
-
-            output_dir = tempfile.mkdtemp()
-            job.download_outputs(output_dir=output_dir)
-
-            # Look for transcript JSON file
-            transcript = ""
-            for root, dirs, files in os.walk(output_dir):
-                for file in files:
-                    if file.endswith(".json"):
-                        json_path = os.path.join(root, file)
-                        with open(json_path) as f:
-                            data = json.load(f)
-                            # Extract transcript from JSON structure
-                            if "transcript" in data:
-                                transcript = data["transcript"]
-                            elif "segments" in data:
-                                # Combine segments
-                                transcript = " ".join(
-                                    [seg.get("text", "") for seg in data["segments"]]
-                                )
-                            break
-                if transcript:
-                    break
-
-            # Clean up temp files
-            os.unlink(temp_file_path)
-            for root, dirs, files in os.walk(output_dir, topdown=False):
-                for file in files:
-                    os.unlink(os.path.join(root, file))
-                for dir in dirs:
-                    os.rmdir(os.path.join(root, dir))
-            os.rmdir(output_dir)
-
-            if not transcript:
-                st.warning("⚠️ No transcript found in output")
-                return None
-
-            st.success(f"✅ Transcribed: {transcript[:100]}...")
-            return transcript
 
         except Exception as e:
-            # Clean up temp file on error
-            if os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-            raise e
+            st.error(f"STT error: {e}")
+            import traceback
 
-    except Exception as e:
-        st.error(f"STT error: {e}")
-        import traceback
+            st.code(traceback.format_exc())
+            return None
 
-        st.code(traceback.format_exc())
-        return None
+    return asyncio.run(_async_wrapper())
 
 
-# -------------------------------------------------------------------
-# Text-to-Speech helper
-# -------------------------------------------------------------------
-def text_to_speech(text: str) -> list | None:
-    """Convert text to audio using SarvamAI TTS."""
-    from sarvamai import TextToSpeechResponse
+def text_to_speech_with_ui(text: str) -> list | None:
+    """Convert text to audio with UI feedback (sync wrapper).
 
-    try:
-        st.info(f"🔊 Generating speech for: {text[:100]}...")
-        from sarvamai import SarvamAI
+    Wrapper around the speech service that provides Streamlit UI feedback.
+    Uses asyncio.run to call the async service methods.
+    """
+    async def _async_wrapper():
+        try:
+            st.info(f"🔊 Generating speech for: {text[:100]}...")
 
-        client = SarvamAI(
-            api_subscription_key=os.getenv("SARVAM_API_KEY"),
-        )
+            # Get speech service and perform TTS
+            speech_service = await get_speech_service()
+            audio_list = await speech_service.text_to_speech(text)
 
-        response: TextToSpeechResponse = client.text_to_speech.convert(
-            model="bulbul:v3",
-            text=text,
-            target_language_code="en-IN",
-            speaker="shubh",
-        pace=1.1,
-            speech_sample_rate=22050,
-            enable_preprocessing=True,
-            temperature=0.6,
-        )
+            if audio_list:
+                st.success("✅ Audio generated successfully")
+                return audio_list
+            else:
+                st.warning("⚠️ No audio generated")
+                return None
 
-        # Debug: Check what we actually get back
-        logging.info(f"Response type: {type(response)}")
-        logging.info(
-            f"Response dict: {response.__dict__ if hasattr(response, '__dict__') else response}"
-        )
-        logging.info(f"Audios type: {type(response.audios)}")
-        logging.info(
-            f"First audio type: {type(response.audios[0]) if response.audios else 'empty'}"
-        )
-        logging.info(
-            f"First audio length: {len(response.audios[0]) if response.audios else 'empty'}"
-        )
+        except Exception as e:
+            st.error(f"TTS error: {e}")
+            import traceback
 
-        return response.audios
-    except Exception as e:
-        st.error(f"TTS error: {e}")
-        import traceback
+            st.code(traceback.format_exc())
+            return None
 
-        st.code(traceback.format_exc())
-        return None
+    return asyncio.run(_async_wrapper())
+
+
+def play_audio_list(audio_list: list):
+    """Play a list of audio data in Streamlit.
+
+    Args:
+        audio_list: List of audio data (base64 strings or URLs)
+    """
+    import base64
+
+    for audio_data in audio_list:
+        # Check if it's a URL or base64 data
+        if audio_data.startswith(("http://", "https://")):
+            st.audio(audio_data)
+        elif isinstance(audio_data, str):
+            # Assume base64 encoded audio
+            try:
+                audio_bytes = base64.b64decode(audio_data)
+                st.audio(audio_bytes)
+            except Exception:
+                # If base64 decode fails, try playing as-is
+                st.audio(audio_data)
+        else:
+            st.audio(audio_data)
 
 
 # -------------------------------------------------------------------
 # Streamlit UI
 # -------------------------------------------------------------------
-st.set_page_config(page_title="Multimodal Voice Agent", layout="wide")
+st.set_page_config(page_title="Multimodal Voice Agent (V2)", layout="wide")
 
-st.title("🎙️ Multimodal Voice Agent")
+st.title("🎙️ Multimodal Voice Agent (V2)")
+st.caption("Using refactored speech service")
 st.markdown("Interact with the AI agent using text, images, and voice.")
 
 # Session state initialization
@@ -351,7 +301,7 @@ with col1:
         "Enter your message or question",
         height=100,
         placeholder="Type your message here, or use voice input...",
-        key="text_input",
+        key="text_input_v2",
     )
 
 with col2:
@@ -405,14 +355,15 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
     # Transcribe audio input if present
     if audio_input:
         audio_bytes = audio_input.getvalue()
-        transcribed_text = speech_to_text(audio_bytes)
+        # Use the refactored speech service with UI feedback
+        transcribed_text = speech_to_text_with_ui(audio_bytes)
         if transcribed_text:
             # Append transcribed text to input
             if text_input and text_input != "Please analyze the uploaded content.":
                 text_input = (
                     f"{text_input}\n\n[Voice input transcribed]: {transcribed_text}"
                 )
-                st.session_state.text_input = transcribed_text
+                st.session_state.text_input_v2 = transcribed_text
             else:
                 text_input = transcribed_text
         else:
@@ -502,27 +453,12 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
             st.markdown(response_text)
 
             # Text-to-speech button
-            if st.button("🔊 Read Aloud", key="read_aloud"):
+            if st.button("🔊 Read Aloud", key="read_aloud_v2"):
                 with st.spinner("Generating audio..."):
-                    audio_list = text_to_speech(response_text)
+                    # Use the refactored speech service with UI feedback
+                    audio_list = text_to_speech_with_ui(response_text)
                     if audio_list:
-                        # Sarvam TTS returns list of audio data (base64 or URLs)
-                        for audio_data in audio_list:
-                            # Check if it's a URL or base64 data
-                            if audio_data.startswith(("http://", "https://")):
-                                st.audio(audio_data)
-                            elif isinstance(audio_data, str):
-                                # Assume base64 encoded audio
-                                import base64
-
-                                try:
-                                    audio_bytes = base64.b64decode(audio_data)
-                                    st.audio(audio_bytes)
-                                except Exception:
-                                    # If base64 decode fails, try playing as-is
-                                    st.audio(audio_data)
-                            else:
-                                st.audio(audio_data)
+                        play_audio_list(audio_list)
                     else:
                         st.warning("No audio generated.")
 
@@ -543,24 +479,12 @@ if st.session_state.last_output:
         st.markdown(st.session_state.last_response_text)
 
         # TTS for previous response
-        if st.button("🔊 Read Previous Aloud", key="read_previous_aloud"):
+        if st.button("🔊 Read Previous Aloud", key="read_previous_aloud_v2"):
             with st.spinner("Generating audio..."):
-                audio_list = text_to_speech(st.session_state.last_response_text)
+                # Use the refactored speech service with UI feedback
+                audio_list = text_to_speech_with_ui(st.session_state.last_response_text)
                 if audio_list:
-                    for audio_data in audio_list:
-                        if audio_data.startswith(("http://", "https://")):
-                            st.audio(audio_data)
-                        elif isinstance(audio_data, str):
-                            import base64
-
-                            try:
-                                audio_bytes = base64.b64decode(audio_data)
-                                st.audio(audio_bytes)
-                            except Exception as e:
-                                logging.warning(f"Error in audio data encoding: {e}")
-                                st.audio(audio_data)
-                        else:
-                            st.audio(audio_data)
+                    play_audio_list(audio_list)
                 else:
                     st.warning("No audio generated.")
 
@@ -569,7 +493,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray;'>
-        <small>Multimodal Voice Agent • Powered by LangGraph • Supports Text, Images & Audio</small>
+        <small>Multimodal Voice Agent V2 • Refactored Speech Service • Powered by LangGraph</small>
     </div>
     """,
     unsafe_allow_html=True,
