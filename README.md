@@ -33,7 +33,14 @@ pip install -e .
 
 ### Configuration
 
-Create a `.env` file with your secrets:
+Create a `.env` file from the example template:
+
+```bash
+# Copy the template
+cp .env.example .env
+
+# Edit with your actual API keys
+```
 
 ```bash
 # For Zhipu/Zai
@@ -46,17 +53,45 @@ OLLAMA_API_KEY=your_key_here
 SARVAM_API_KEY=your_sarvam_key
 ```
 
+**⚠️ Important Note for Docker Deployment:**
+
+Dependencies must be explicitly listed in `langgraph.json` for Docker builds (`langgraph up`). The Docker build process does NOT automatically read from `pyproject.toml`. However, `langgraph dev` (local development) works fine with `pyproject.toml` alone.
+
+When adding new packages:
+1. Add to `pyproject.toml` (for local dev)
+2. **Also add to `langgraph.json`** (for Docker deployment)
+
 ### Running the Agent
 
-```bash
-# Terminal 1: Start the LangGraph server
-langgraph dev
+#### Docker Compose (Recommended)
 
+LangGraph's built-in Docker Compose setup includes Postgres for state storage and Redis for caching:
+
+```bash
+# Terminal 1: Start LangGraph backend with hot-reload
+langgraph up --watch
+# Terminal 1: Local/IDE LangGraph server
+langgraph dev
+```
+
+The `--watch` flag enables automatic reloading when you change code.
+
+```bash
 # Terminal 2: Start the web UI
 streamlit run ui/app.py
 ```
 
-Then open `http://localhost:8501` and start conversing.
+**Access:**
+- **LangGraph API**: http://localhost:8123
+- **API Docs**: http://localhost:8123/docs
+- **Streamlit UI**: http://localhost:8501
+
+#### Production Build
+
+```bash
+# Build without watch mode for production
+langgraph build
+```
 
 ## 🏗️ Architecture
 
@@ -157,6 +192,7 @@ pytest -v
 │   └── app.py             # Streamlit web interface
 ├── tests/                 # Currently empty, like my motivation
 ├── langgraph.json         # LangGraph configuration
+├── .env.example           # Environment variable template
 └── pyproject.toml         # Dependencies & tool config
 ```
 

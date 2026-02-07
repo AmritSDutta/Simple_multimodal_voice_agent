@@ -60,11 +60,23 @@ mypy src/
 ```
 
 ### Running the Agent
-```bash
-# Start LangGraph development server (with in-memory storage)
-langgraph dev
 
-# Build for production
+**Development Mode (with hot-reload):**
+```bash
+# Start LangGraph with Docker Compose (Postgres + Redis included)
+# Automatically builds, starts services, and watches for code changes
+langgraph up --watch
+```
+
+The `langgraph up` command:
+- Creates a Docker Compose setup with Postgres (state storage) and Redis (caching)
+- Builds and starts all services
+- `--watch` enables hot-reload for rapid development
+- Exposes the API at `http://localhost:8123` by default
+
+**Production Build:**
+```bash
+# Build for production (without watch mode)
 langgraph build
 ```
 
@@ -201,7 +213,7 @@ Streamlit-based UI that communicates with the LangGraph API via REST:
   - Returns list of audio data (base64 or URLs)
 
 **Deployment Configuration:**
-- `DEPLOYMENT_URL`: Default `http://localhost:2024`
+- `DEPLOYMENT_URL`: Default `http://localhost:8123` (Docker Compose port)
 - `ASSISTANT_ID`: `"agent"` (must match `langgraph.json` graph name)
 
 ### Logging (`src/flow_agent/logging_config.py`)
@@ -221,8 +233,21 @@ Streamlit-based UI that communicates with the LangGraph API via REST:
 - Graph entry point: `./src/flow_agent/graph.py:graph`
 - Graph name: `agent` (used as `assistant_id` in UI)
 - Environment file: `.env`
-- Dependencies: Current directory
-- Distribution: `wolfi`
+- Image distribution: `wolfi`
+
+**Important - Dependencies for Docker Deployment:**
+For Docker deployment (`langgraph up`), dependencies **must** be explicitly listed in the `dependencies` array in `langgraph.json`. The Docker build process does NOT automatically infer dependencies from `pyproject.toml`. However, `langgraph dev` (local development) works fine with `pyproject.toml` alone.
+
+Current `langgraph.json` dependencies include:
+- LangGraph stack: `langgraph`, `langgraph-api`, `langgraph-cli`
+- LangChain integrations: `langchain-core`, `langchain-google-genai`, `langchain-ollama`, `langchain-openai`, `langchain-community`
+- Utilities: `pydantic`, `pydantic-settings`, `python-dotenv`, `requests`
+- UI: `streamlit`, `sarvamai`
+- Tools: `ddgs` (DuckDuckGo search)
+
+When adding new dependencies, remember to:
+1. Add to `pyproject.toml` for local development
+2. **Also add to `langgraph.json`** for Docker deployment
 
 ## Environment Variables
 The project uses a `.env` file for configuration (not tracked in git):
@@ -232,13 +257,21 @@ The project uses a `.env` file for configuration (not tracked in git):
 - Google Genai credentials (auto-configured via SDK)
 
 ## Running the Streamlit UI
-```bash
-# Start the LangGraph development server first
-langgraph dev
 
-# In a separate terminal, run the Streamlit UI
+**Step 1: Start the LangGraph backend**
+```bash
+langgraph up --watch
+```
+
+**Step 2: Start the Streamlit UI (in a separate terminal)**
+```bash
 streamlit run ui/app.py
 ```
+
+**Access:**
+- LangGraph API: http://localhost:8123
+- API Docs: http://localhost:8123/docs
+- Streamlit UI: http://localhost:8501
 
 ## Important Notes
 

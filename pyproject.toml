@@ -23,7 +23,8 @@ dependencies = [
     "requests>=2.31.0",
     "streamlit>=1.28.0",
     "sarvamai>=0.1.0",
-    "langgraph-api>=0.5.14"
+    "langgraph-api>=0.5.14",
+    "langgraph-cli>=0.4.7"
 ]
 
 
