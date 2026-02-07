@@ -12,8 +12,11 @@ Example:
     transcript = await speech.speech_to_text(audio_bytes)
     audio_list = await speech.text_to_speech("Hello world")
 """
-
+from src.flow_agent.logging_config import setup_logging
 from src.flow_agent.speech.factory import get_speech_service
 from src.flow_agent.speech.interface import SpeechService
+
+# Setup logging on package import
+setup_logging()
 
 __all__ = ["SpeechService", "get_speech_service"]
