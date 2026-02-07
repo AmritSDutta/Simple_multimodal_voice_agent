@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     OPENAI_PROVIDER_IDENTIFIER: str = 'openai'
     ZHIPU_PROVIDER_IDENTIFIER: str = 'zhipu'
     OLLAMA_PROVIDER_IDENTIFIER: str = 'ollama'
+    FALLBACK_PROVIDER_IDENTIFIER: str = 'openai'
 
     PROVIDER_DISTRIBUTION: dict = {
         GEMINI_PROVIDER_IDENTIFIER: 0.2,
@@ -36,6 +37,8 @@ class Settings(BaseSettings):
     ZHIPU_BASE_URL: str = "https://api.z.ai/api/paas/v4/"
     OLLAMA_KEY_STRING: str = "OLLAMA_API_KEY"
     ZHIPU_KEY_STRING: str = "ZAI_API_KEY"
+
+    REASONING_NODE_PREFERENCE: str = 'langchain'
 
 # Global settings instance
 settings = Settings()

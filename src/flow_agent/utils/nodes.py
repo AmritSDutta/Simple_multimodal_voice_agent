@@ -150,7 +150,7 @@ async def call_llm_safely(llm: BaseChatModel, multimodal_msg: HumanMessage) -> A
             if i == settings.MAX_TRY - 1:
                 logging.error(f"Attempt exhausted: {e}, trying alternative")
                 try:
-                    llm = await get_chat_llm('openai')
+                    llm = await get_chat_llm(settings.FALLBACK_PROVIDER_IDENTIFIER)
                     response = await llm.ainvoke([multimodal_msg])
                     return response
                 except Exception as ae:

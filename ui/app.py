@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import time
-import base64
 import requests
 import streamlit as st
 from sarvamai import JobStatusV1Response
@@ -19,6 +18,8 @@ ASSISTANT_ID = "agent"
 # -------------------------------------------------------------------
 def encode_file_to_base64(file, mime_type: str) -> str:
     """Encode uploaded file to base64 string."""
+    import base64
+
     file_bytes = file.read()
     return base64.b64encode(file_bytes).decode("utf-8")
 
