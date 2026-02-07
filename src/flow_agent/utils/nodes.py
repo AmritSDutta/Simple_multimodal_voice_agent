@@ -1,13 +1,14 @@
 import base64
 import logging
 from asyncio import sleep
-from typing import List, Any
+from typing import List, Any, Sequence
 
 from google.genai import types
 from google.genai.chats import AsyncChat
 from google.genai.types import GenerateContentResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.runnables import Runnable
 from langgraph.constants import END
 from langgraph.runtime import Runtime
 from langgraph_api.schema import Context
@@ -47,12 +48,17 @@ async def entry_node(state: State):
     messages: list[BaseMessage] = state.get("messages")
     if messages:
         human_msg = messages[-1]
-        content = human_msg.content
+        content: str | list[str | dict] = human_msg.content
+        if isinstance(content, str):
+            # Handle plain string - convert to expected format
+            content = [{"type": "text", "text": content}]
+            logging.info(f'user req: {content}')
+
         if isinstance(content, list):
             for item in content:
-                if item.get("type") == "text":
+                if hasattr(item, 'get') and item.get("type") == "text":
                     logging.info(f'user req: {item.get("text")}')
-                elif item.get("type") != 'text':
+                elif hasattr(item, 'get') and item.get("type") != 'text':
                     logging.info(f'found {item.get("type")} media: {item.get("metadata")}')
 
     if state.get("ended_once"):
@@ -86,9 +92,9 @@ async def call_langchain_reasoning_model(
     # Extract text/media from input
     if isinstance(content, list):
         for item in content:
-            if item.get("type") == "text":
-                text_prompt = item.get("text")
-            elif item.get("type") in ["image", "audio", "video"]:
+            if hasattr(item, 'get') and item.get("type") == "text":
+                text_prompt = item.get("text", "hi")
+            elif hasattr(item, 'get') and item.get("type") in ["image", "audio", "video"]:
                 data = item.get("data")
                 if data:
                     media_b64s.append(data)
@@ -96,8 +102,8 @@ async def call_langchain_reasoning_model(
                     logging.info(f"Media: {mime_type}")
 
     # Initialize ChatOpenAI with vision model
-    llm: BaseChatModel = await get_chat_llm()
-    msg_content = await prepare_llm_input(text_prompt, media_b64s)
+    llm: BaseChatModel | Runnable = await get_chat_llm()
+    msg_content:  Sequence[dict | str] = await prepare_llm_input(text_prompt, media_b64s)
     '''
     message_content = [{"type": "text", "text": text_prompt}]
     # Add images to content array
@@ -120,7 +126,7 @@ async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> l
     """
     prepare multimodal or text based message for llm depending on the parameter
     """
-    message_content = [{"type": "text", "text": text_prompt}]
+    message_content: list[str | dict] = [{"type": "text", "text": text_prompt}]
     # Add images to content array
     if media_b64s:
         for b64_image in media_b64s[:4]:  # Limit to 4 images
@@ -133,7 +139,7 @@ async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> l
     return message_content
 
 
-async def call_llm_safely(llm: BaseChatModel, multimodal_msg: HumanMessage) -> Any:
+async def call_llm_safely(llm:  BaseChatModel | Runnable, multimodal_msg: HumanMessage) -> Any:
     """
     A trivial circuit breaker with exponential backoff
     """
@@ -169,7 +175,7 @@ def process_response(state: State, response: AIMessage, user_input: str = "") ->
         "issue": user_input,
         "messages": [new_msg],
         "ended_once": False,
-        "final_report": summary,
+        "final_report": str(summary),
     }
 
 
@@ -185,18 +191,19 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
 
     if isinstance(content, list):
         for item in content:
-            if item.get("type") == "text":
-                prompt = item.get("text")
-            elif item.get("type") == "image":
+            if hasattr(item, 'get') and item.get("type") == "text":
+                prompt = item.get("text", "Analyze this input.")
+            elif hasattr(item, 'get') and item.get("type") == "image":
                 # Correctly mapping from LangGraph 'data' key
                 image_data = item.get("data")
                 mime_type = item.get("mime_type")
                 logging.info(f"image content detected in prompt: {mime_type}")
             else:
-                mime_type = item.get("mime_type")
-                logging.info(
-                    f"other content detected in prompt: {item.get('type')},  {mime_type}"
-                )
+                if isinstance(item, dict):
+                    mime_type = item.get("mime_type")
+                    logging.info(
+                        f"other content detected in prompt: {item.get('type')},  {mime_type}"
+                    )
     else:
         # Fallback for simple string content
         logging.info(f"Content: {content[:100]}")
@@ -206,7 +213,7 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
     full_prompt = f"INSTRUCTIONS: Response user query, use image data if available.\n\nUSER QUERY: {prompt}"
 
     # 4. Prepare the message parts
-    message_parts: List[types.Part] = [full_prompt]
+    message_parts: List[str | types.Part] = [full_prompt]
 
     if image_data and mime_type:
         image_part = types.Part.from_bytes(
