@@ -1,11 +1,11 @@
-import base64
-import io
 import json
+import logging
 import os
 import time
+import base64
 import requests
-
 import streamlit as st
+from sarvamai import JobStatusV1Response
 
 # -------------------------------------------------------------------
 # Config
@@ -20,10 +20,12 @@ ASSISTANT_ID = "agent"
 def encode_file_to_base64(file, mime_type: str) -> str:
     """Encode uploaded file to base64 string."""
     file_bytes = file.read()
-    return base64.b64encode(file_bytes).decode('utf-8')
+    return base64.b64encode(file_bytes).decode("utf-8")
 
 
-def build_multimodal_content(text: str, images: list = None, audio: bytes = None) -> list:
+def build_multimodal_content(
+    text: str, images: list = None, audio: bytes = None
+) -> list:
     """Build multimodal content array in the format expected by the graph."""
     content = [{"type": "text", "text": text}]
 
@@ -32,23 +34,27 @@ def build_multimodal_content(text: str, images: list = None, audio: bytes = None
         for image_file in images:
             mime_type = image_file.type
             b64_data = encode_file_to_base64(image_file, mime_type)
-            content.append({
-                "type": "image",
-                "data": b64_data,
-                "metadata": {"filename": image_file.name},
-                "source_type": "base64",
-                "mime_type": mime_type
-            })
+            content.append(
+                {
+                    "type": "image",
+                    "data": b64_data,
+                    "metadata": {"filename": image_file.name},
+                    "source_type": "base64",
+                    "mime_type": mime_type,
+                }
+            )
 
     # Add audio
     if audio:
-        b64_audio = base64.b64encode(audio).decode('utf-8')
-        content.append({
-            "type": "audio",
-            "data": b64_audio,
-            "source_type": "base64",
-            "mime_type": "audio/webm"  # Streamlit audio input default format
-        })
+        b64_audio = base64.b64encode(audio).decode("utf-8")
+        content.append(
+            {
+                "type": "audio",
+                "data": b64_audio,
+                "source_type": "base64",
+                "mime_type": "audio/webm",  # Streamlit audio input default format
+            }
+        )
 
     return content
 
@@ -175,7 +181,7 @@ def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | N
         from sarvamai import SarvamAI
 
         client = SarvamAI(
-            api_subscription_key=os.getenv('SARVAM_API_KEY'),
+            api_subscription_key=os.getenv("SARVAM_API_KEY"),
         )
 
         # Create STT job
@@ -187,7 +193,9 @@ def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | N
         )
 
         # Save audio to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=file_extension
+        ) as temp_file:
             temp_file.write(audio_bytes)
             temp_file_path = temp_file.name
 
@@ -202,16 +210,18 @@ def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | N
             progress_placeholder = st.empty()
             progress_placeholder.info("⏳ Processing audio...")
 
-            final_status = job.wait_until_complete()
+            final_status: JobStatusV1Response = job.wait_until_complete()
 
             progress_placeholder.empty()
 
             if job.is_failed():
+                logging.info(f"failed reason: {final_status.error_message}")
                 st.error("❌ STT job failed.")
                 return None
 
             # Get transcript - parse output files
             import json
+
             output_dir = tempfile.mkdtemp()
             job.download_outputs(output_dir=output_dir)
 
@@ -219,16 +229,18 @@ def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | N
             transcript = ""
             for root, dirs, files in os.walk(output_dir):
                 for file in files:
-                    if file.endswith('.json'):
+                    if file.endswith(".json"):
                         json_path = os.path.join(root, file)
-                        with open(json_path, 'r') as f:
+                        with open(json_path, "r") as f:
                             data = json.load(f)
                             # Extract transcript from JSON structure
-                            if 'transcript' in data:
-                                transcript = data['transcript']
-                            elif 'segments' in data:
+                            if "transcript" in data:
+                                transcript = data["transcript"]
+                            elif "segments" in data:
                                 # Combine segments
-                                transcript = " ".join([seg.get('text', '') for seg in data['segments']])
+                                transcript = " ".join(
+                                    [seg.get("text", "") for seg in data["segments"]]
+                                )
                             break
                 if transcript:
                     break
@@ -258,6 +270,7 @@ def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | N
     except Exception as e:
         st.error(f"STT error: {e}")
         import traceback
+
         st.code(traceback.format_exc())
         return None
 
@@ -274,7 +287,7 @@ def text_to_speech(text: str) -> list | None:
         from sarvamai import SarvamAI
 
         client = SarvamAI(
-            api_subscription_key=os.getenv('SARVAM_API_KEY'),
+            api_subscription_key=os.getenv("SARVAM_API_KEY"),
         )
 
         response: TextToSpeechResponse = client.text_to_speech.convert(
@@ -285,20 +298,27 @@ def text_to_speech(text: str) -> list | None:
             speech_sample_rate=22050,
             enable_preprocessing=True,
             model="bulbul:v3",
-            temperature=0.6
+            temperature=0.6,
         )
 
         # Debug: Check what we actually get back
-        print(f'Response type: {type(response)}')
-        print(f'Response dict: {response.__dict__ if hasattr(response, "__dict__") else response}')
-        print(f'Audios type: {type(response.audios)}')
-        print(f'First audio type: {type(response.audios[0]) if response.audios else "empty"}')
-        print(f'First audio length: {len(response.audios[0]) if response.audios else "empty"}')
+        logging.info(f"Response type: {type(response)}")
+        logging.info(
+            f"Response dict: {response.__dict__ if hasattr(response, '__dict__') else response}"
+        )
+        logging.info(f"Audios type: {type(response.audios)}")
+        logging.info(
+            f"First audio type: {type(response.audios[0]) if response.audios else 'empty'}"
+        )
+        logging.info(
+            f"First audio length: {len(response.audios[0]) if response.audios else 'empty'}"
+        )
 
         return response.audios
     except Exception as e:
         st.error(f"TTS error: {e}")
         import traceback
+
         st.code(traceback.format_exc())
         return None
 
@@ -328,14 +348,13 @@ with col1:
         "Enter your message or question",
         height=100,
         placeholder="Type your message here, or use voice input...",
-        key="text_input"
+        key="text_input",
     )
 
 with col2:
     st.subheader("🎤 Voice Input")
     audio_input = st.audio_input(
-        "Record your voice",
-        help="Click the microphone to record audio input"
+        "Record your voice", help="Click the microphone to record audio input"
     )
 
 st.markdown("---")
@@ -346,7 +365,7 @@ uploaded_images = st.file_uploader(
     "Upload images (optional)",
     type=["png", "jpg", "jpeg", "gif", "webp"],
     accept_multiple_files=True,
-    help="You can upload multiple images for analysis"
+    help="You can upload multiple images for analysis",
 )
 
 # Display preview of uploaded images
@@ -374,7 +393,11 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
     thread_id = st.session_state.thread_id
 
     # Build multimodal content
-    text_input = issue_text.strip() if issue_text.strip() else "Please analyze the uploaded content."
+    text_input = (
+        issue_text.strip()
+        if issue_text.strip()
+        else "Please analyze the uploaded content."
+    )
 
     # Transcribe audio input if present
     if audio_input:
@@ -383,8 +406,10 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
         if transcribed_text:
             # Append transcribed text to input
             if text_input and text_input != "Please analyze the uploaded content.":
-                text_input = f"{text_input}\n\n[Voice input transcribed]: {transcribed_text}"
-                issue_text.update(text_input)
+                text_input = (
+                    f"{text_input}\n\n[Voice input transcribed]: {transcribed_text}"
+                )
+                st.session_state.text_input = transcribed_text
             else:
                 text_input = transcribed_text
         else:
@@ -393,7 +418,7 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
     multimodal_content = build_multimodal_content(
         text=text_input,
         images=uploaded_images,
-        audio=None  # Don't send raw audio, we send transcribed text
+        audio=None,  # Don't send raw audio, we send transcribed text
     )
 
     # Prepare input payload
@@ -481,11 +506,12 @@ if run_button and (issue_text.strip() or audio_input or uploaded_images):
                         # Sarvam TTS returns list of audio data (base64 or URLs)
                         for audio_data in audio_list:
                             # Check if it's a URL or base64 data
-                            if audio_data.startswith(('http://', 'https://')):
+                            if audio_data.startswith(("http://", "https://")):
                                 st.audio(audio_data)
                             elif isinstance(audio_data, str):
                                 # Assume base64 encoded audio
                                 import base64
+
                                 try:
                                     audio_bytes = base64.b64decode(audio_data)
                                     st.audio(audio_bytes)
@@ -519,14 +545,16 @@ if st.session_state.last_output:
                 audio_list = text_to_speech(st.session_state.last_response_text)
                 if audio_list:
                     for audio_data in audio_list:
-                        if audio_data.startswith(('http://', 'https://')):
+                        if audio_data.startswith(("http://", "https://")):
                             st.audio(audio_data)
                         elif isinstance(audio_data, str):
                             import base64
+
                             try:
                                 audio_bytes = base64.b64decode(audio_data)
                                 st.audio(audio_bytes)
-                            except Exception:
+                            except Exception as e:
+                                logging.warning(f"Error in audio data encoding: {e}")
                                 st.audio(audio_data)
                         else:
                             st.audio(audio_data)
@@ -541,5 +569,5 @@ st.markdown(
         <small>Multimodal Voice Agent • Powered by LangGraph • Supports Text, Images & Audio</small>
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )

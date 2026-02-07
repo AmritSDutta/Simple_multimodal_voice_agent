@@ -5,8 +5,11 @@ from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 
 from src.flow_agent.logging_config import setup_logging
-from src.flow_agent.utils.nodes import entry_node, should_continue, call_gemini_reasoning_model, \
-    call_langchain_reasoning_model
+from src.flow_agent.utils.nodes import (
+    entry_node,
+    should_continue,
+    call_langchain_reasoning_model,
+)
 from src.flow_agent.utils.state import State
 
 setup_logging()
@@ -22,6 +25,8 @@ graph = (
     .add_node("entry", entry_node)
     .add_node("reasoning", call_langchain_reasoning_model)
     .add_edge(START, "entry")
-    .add_conditional_edges('entry', should_continue, {"reasoning": "reasoning", END: END})
+    .add_conditional_edges(
+        "entry", should_continue, {"reasoning": "reasoning", END: END}
+    )
     .add_edge("reasoning", END)
 )

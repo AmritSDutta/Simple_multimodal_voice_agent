@@ -7,34 +7,51 @@ from langchain_google_genai.chat_models import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
+providers = {
+    "openai": 0.2,
+    "gemini": 0.2,
+    "zhipu": 0.3,
+    "ollama": 0.3
+}
 
-async def get_chat_llm(
-        provider: str = 'ollama') -> BaseChatModel:
+
+def _get_random_provider():
+    import random
+    names = list(providers.keys())
+    weights = list(providers.values())
+
+    choice = random.choices(names, weights=weights, k=1)[0]
+    logging.info(f"Using {providers[choice]} -  weights")
+    return choice
+
+
+async def get_chat_llm(provider: str | None = None) -> BaseChatModel:
+    if provider is None:
+        provider = _get_random_provider()
+
+    logging.info(f"Using {provider}")
     llm: BaseChatModel | None = None
-    if provider.lower() == 'openai':
+    if provider.lower() == "openai":
         llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
-    elif provider.lower() == 'gemini':
+    elif provider.lower() == "gemini":
         llm = ChatGoogleGenerativeAI(model="gemma-3-27b-it", temperature=0)
-    elif provider.lower() == 'zhipu' or provider.lower() == 'zai':
+    elif provider.lower() == "zhipu" or provider.lower() == "zai":
         llm = ChatOpenAI(
             temperature=0.6,
             model="GLM-4.6V-Flash",
             openai_api_key=os.getenv("ZAI_API_KEY"),
-            openai_api_base="https://api.z.ai/api/paas/v4/"
+            openai_api_base="https://api.z.ai/api/paas/v4/",
         )
     else:
         llm = ChatOllama(
-            model='qwen3-vl:235b-instruct-cloud',
+            model="qwen3-vl:235b-instruct-cloud",
             # reasoning=True,
             base_url="https://ollama.com",
             client_kwargs={
                 "headers": {"Authorization": "Bearer " + os.getenv("OLLAMA_API_KEY")},
-                "timeout": 60.0  # Timeout in seconds
-            }
+                "timeout": 60.0,  # Timeout in seconds
+            },
         )
-    logging.info(f"Using {provider} -  model")
-    llm = llm.bind_tools([DuckDuckGoSearchRun()])
+    logging.info(f"Using {llm.model_config}")
+    llm: BaseChatModel = llm.bind_tools([DuckDuckGoSearchRun()])
     return llm
-
-
-

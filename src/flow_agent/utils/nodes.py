@@ -5,7 +5,7 @@ from typing import List
 from google.genai import types
 from google.genai.chats import AsyncChat
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, UsageMetadata
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.constants import END
 from langgraph.runtime import Runtime
 from langgraph_api.schema import Context
@@ -14,7 +14,7 @@ from src.flow_agent.llms.LangChainChatLLM import get_chat_llm
 from src.flow_agent.llms.genai_agent import get_summarizer_agent
 from src.flow_agent.utils.state import State
 
-'''
+"""
     # 1. Extract the specific HumanMessage containing the multimodal data
     General structure with image:
     [
@@ -37,14 +37,17 @@ from src.flow_agent.utils.state import State
     ]
 
     Assuming the latest message is index -1
-'''
+"""
 
 
 async def entry_node(state: State):
-    print(state.get("messages"))
+    logging.info(state.get("messages"))
     if state.get("ended_once"):
         # Mark as closed
-        return {"ended_once": True, "messages": AIMessage('Use another thread for run. It is already ended')}
+        return {
+            "ended_once": True,
+            "messages": AIMessage("Use another thread for run. It is already ended"),
+        }
     return state
 
 
@@ -57,7 +60,9 @@ async def should_continue(state: State):
     return "reasoning"  # Normal flow
 
 
-async def call_langchain_reasoning_model(state: State, runtime: Runtime[Context]) -> State:
+async def call_langchain_reasoning_model(
+    state: State, runtime: Runtime[Context]
+) -> State:
     messages = state.get("messages")
     human_msg = messages[-1]
     content = human_msg.content
@@ -68,45 +73,43 @@ async def call_langchain_reasoning_model(state: State, runtime: Runtime[Context]
     # Extract text/media from input
     if isinstance(content, list):
         for item in content:
-            if item.get('type') == 'text':
-                text_prompt = item.get('text')
-            elif item.get('type') in ['image', 'audio', 'video']:
-                data = item.get('data')
+            if item.get("type") == "text":
+                text_prompt = item.get("text")
+            elif item.get("type") in ["image", "audio", "video"]:
+                data = item.get("data")
                 if data:
                     media_b64s.append(data)
-                    mime_type = item.get('mime_type')
+                    mime_type = item.get("mime_type")
                     logging.info(f"Media: {mime_type}")
 
     # Initialize ChatOpenAI with vision model
-    provider: str = 'ollama'
+    provider: str = "ollama"
     llm: BaseChatModel = await get_chat_llm(provider)
 
     # Build multimodal message content
-    message_content = [
-        {"type": "text", "text": text_prompt}
-    ]
+    message_content = [{"type": "text", "text": text_prompt}]
 
     # Add images to content array
     if media_b64s:
         for b64_image in media_b64s[:4]:  # Limit to 4 images
-            message_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{b64_image}"
+            message_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
                 }
-            })
+            )
 
     # Create multimodal message
     multimodal_msg = HumanMessage(content=message_content)
 
     # Invoke the model
     response = await llm.ainvoke([multimodal_msg])
-    logging.info(f'provider: {provider}, usage: {response.usage_metadata}')
+    logging.info(f"provider: {provider}, usage: {response.usage_metadata}")
 
     return process_response(state, response, text_prompt)
 
 
-def process_response(state: State, response: AIMessage, user_input: str = '') -> State:
+def process_response(state: State, response: AIMessage, user_input: str = "") -> State:
     summary = response.content or "No response"
     new_msg = AIMessage(content=f"Issue summary: {summary}")
     return {
@@ -114,7 +117,7 @@ def process_response(state: State, response: AIMessage, user_input: str = '') ->
         "issue": user_input,
         "messages": [new_msg],
         "ended_once": False,
-        "final_report": summary
+        "final_report": summary,
     }
 
 
@@ -130,16 +133,18 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
 
     if isinstance(content, list):
         for item in content:
-            if item.get('type') == 'text':
-                prompt = item.get('text')
-            elif item.get('type') == 'image':
+            if item.get("type") == "text":
+                prompt = item.get("text")
+            elif item.get("type") == "image":
                 # Correctly mapping from LangGraph 'data' key
-                image_data = item.get('data')
-                mime_type = item.get('mime_type')
+                image_data = item.get("data")
+                mime_type = item.get("mime_type")
                 logging.info(f"image content detected in prompt: {mime_type}")
             else:
-                mime_type = item.get('mime_type')
-                logging.info(f"other content detected in prompt: {item.get('type')},  {mime_type}")
+                mime_type = item.get("mime_type")
+                logging.info(
+                    f"other content detected in prompt: {item.get('type')},  {mime_type}"
+                )
     else:
         # Fallback for simple string content
         logging.info(f"Content: {content[:100]}")
@@ -153,8 +158,7 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
 
     if image_data and mime_type:
         image_part = types.Part.from_bytes(
-            data=base64.b64decode(image_data),
-            mime_type=mime_type
+            data=base64.b64decode(image_data), mime_type=mime_type
         )
         message_parts.append(image_part)
 
@@ -176,5 +180,5 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
         "issue": summary,
         "messages": [genai_res],
         "ended_once": False,
-        "final_report": genai_res
+        "final_report": genai_res,
     }
