@@ -40,5 +40,6 @@ class Settings(BaseSettings):
 
     REASONING_NODE_PREFERENCE: str = 'langchain'
 
+
 # Global settings instance
 settings = Settings()

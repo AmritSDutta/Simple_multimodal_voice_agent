@@ -1,12 +1,12 @@
 import logging
 import os
+import random
 
 from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
-import random
 
 from src.flow_agent.config import settings
 
@@ -15,7 +15,7 @@ random.seed(1234)
 
 def _get_random_provider():
     """
-    Random distribution vased selection
+    Random distribution based selection.
     """
     names = list(settings.PROVIDER_DISTRIBUTION.keys())
     weights = list(settings.PROVIDER_DISTRIBUTION.values())

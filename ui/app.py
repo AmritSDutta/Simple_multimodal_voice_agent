@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+
 import requests
 import streamlit as st
 from sarvamai import JobStatusV1Response
@@ -132,6 +133,7 @@ def extract_final_report_from_thread(thread_state: dict) -> str:
     Your State has final_report: CombinedPlan, but it's persisted by the app,
     so we search the whole thread JSON.
     """
+
     final = _find_key_recursive(thread_state, "final_report")
     if final is None:
         # fallback: show entire thread state
@@ -173,8 +175,8 @@ def extract_text_from_final_report(final_report_data) -> str:
 # -------------------------------------------------------------------
 def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | None:
     """Convert audio to text using SarvamAI STT job-based API."""
-    import tempfile
     import os
+    import tempfile
 
     try:
         st.info("🎤 Transcribing audio...")
@@ -232,7 +234,7 @@ def speech_to_text(audio_bytes: bytes, file_extension: str = ".webm") -> str | N
                 for file in files:
                     if file.endswith(".json"):
                         json_path = os.path.join(root, file)
-                        with open(json_path, "r") as f:
+                        with open(json_path) as f:
                             data = json.load(f)
                             # Extract transcript from JSON structure
                             if "transcript" in data:

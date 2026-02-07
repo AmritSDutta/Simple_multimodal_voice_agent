@@ -5,6 +5,7 @@ from typing import List, Any
 
 from google.genai import types
 from google.genai.chats import AsyncChat
+from google.genai.types import GenerateContentResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.constants import END
@@ -215,7 +216,7 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
 
     # 5. Get Agent & Send
     agent: AsyncChat = await get_summarizer_agent()
-    response = await agent.send_message(message=message_parts)
+    response: GenerateContentResponse = await agent.send_message(message=message_parts)
 
     # 6. Process Response
     summary = response.text if response and response.text else "No output generated."
@@ -231,5 +232,5 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
         "issue": summary,
         "messages": [genai_res],
         "ended_once": False,
-        "final_report": genai_res,
+        "final_report": str(genai_res.content)
     }
