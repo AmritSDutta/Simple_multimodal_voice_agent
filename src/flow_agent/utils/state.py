@@ -12,3 +12,4 @@ class State(TypedDict):
     issue: str
     final_report: str
     ended_once: bool
+    input_valid: bool

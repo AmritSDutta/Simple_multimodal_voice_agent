@@ -13,6 +13,7 @@ from langgraph.constants import END
 from langgraph.runtime import Runtime
 from langgraph_api.schema import Context
 
+from src.flow_agent.utils.input_validation import scan_for_vulnerability
 from src.flow_agent.config import settings
 from src.flow_agent.llms.LangChainChatLLM import get_chat_llm
 from src.flow_agent.llms.genai_agent import get_summarizer_agent
@@ -64,6 +65,7 @@ async def entry_node(state: State):
     if state.get("ended_once"):
         # Mark as closed
         return {
+            "input_valid": False,
             "ended_once": True,
             "messages": AIMessage("Use another thread for run. It is already ended"),
         }
@@ -76,7 +78,7 @@ async def should_continue(state: State):
         logging.info("Thread already closed, skipping execution")
         return END
 
-    return "reasoning"  # Normal flow
+    return "input_validator"  # Normal flow
 
 
 async def call_langchain_reasoning_model(
@@ -139,7 +141,7 @@ async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> l
     return message_content
 
 
-async def call_llm_safely(llm:  BaseChatModel | Runnable, multimodal_msg: HumanMessage) -> Any:
+async def call_llm_safely(llm: BaseChatModel | Runnable, multimodal_msg: HumanMessage) -> Any:
     """
     A trivial circuit breaker with exponential backoff
     """
@@ -171,6 +173,7 @@ def process_response(state: State, response: AIMessage, user_input: str = "") ->
     summary = response.content or "No response"
     new_msg = AIMessage(content=f"Issue summary: {summary}")
     return {
+        "input_valid": True,
         "retry_count": 0,
         "issue": user_input,
         "messages": [new_msg],
@@ -235,9 +238,31 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
     genai_res = AIMessage(content=f"Issue summary: {summary}")
 
     return {
+        "input_valid": True,
         "retry_count": 0,
         "issue": summary,
         "messages": [genai_res],
         "ended_once": False,
         "final_report": str(genai_res.content)
     }
+
+
+async def call_input_validation(state: State, runtime: Runtime[Context]) -> dict:
+    user_message: list[HumanMessage] = [msg for msg in state.get("messages") if isinstance(msg, HumanMessage)]
+
+    is_safe: bool = await scan_for_vulnerability(user_message[-1])
+    if is_safe:
+        return {
+            # "messages": AIMessage(f"Validated user prompt..."),
+            "input_valid": True  # Flag for routing
+        }
+    else:
+        logging.warning('Input validation failed - malicious content detected')
+        return {
+            "messages": AIMessage("Unsafe user prompt detected..."),
+            "input_valid": False  # Flag for routing
+        }
+
+
+async def route_after_validation(state: State) -> str:
+    return "reasoning" if state["input_valid"] else END

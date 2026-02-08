@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     ZHIPU_KEY_STRING: str = "ZAI_API_KEY"
 
     REASONING_NODE_PREFERENCE: str = 'langchain'
+    MODERATION_API_CHECK_REQ: bool = 'True'
+    MODERATION_MODEL: str = 'omni-moderation-latest'  # OpenAI (omni-moderation-latest) -> text + image
 
     # Speech Service Configuration
     SPEECH_PROVIDER: str = "sarvam"  # Default provider
