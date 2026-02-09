@@ -45,6 +45,7 @@ def setup_logging():
         force=True,  # <-- crucial to override uvicorn/langgraph setup
     )
     logging.getLogger("httpx").setLevel(logging.DEBUG)
+    logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)
     # 4. Silence noisy libraries
     noisy = [
         "uvicorn",

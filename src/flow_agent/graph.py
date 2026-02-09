@@ -12,7 +12,7 @@ from src.flow_agent.utils.nodes import (
     entry_node,
     call_gemini_reasoning_model,
     call_langchain_reasoning_model,
-    should_continue, call_input_validation, route_after_validation,
+    call_input_validation, route_after_validation,
 
 )
 from src.flow_agent.utils.state import State
@@ -36,9 +36,7 @@ graph = (
               else call_gemini_reasoning_model
               )
     .add_edge(START, "entry")
-    .add_conditional_edges(
-        "entry", should_continue, {"input_validator": "input_validator", END: END}
-    )
+    .add_edge("entry", "input_validator")
     .add_conditional_edges("input_validator", route_after_validation, {"reasoning": "reasoning", END: END})
     .add_edge("reasoning", END)
 )

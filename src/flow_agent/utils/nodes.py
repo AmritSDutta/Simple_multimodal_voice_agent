@@ -72,23 +72,7 @@ async def entry_node(state: State):
                 elif hasattr(item, 'get') and item.get("type") != 'text':
                     logging.info(f'found media of type: {item.get("type")}')
 
-    if state.get("ended_once"):
-        # Mark as closed
-        return {
-            "input_valid": False,
-            "ended_once": True,
-            "messages": AIMessage("Use another thread for run. It is already ended"),
-        }
     return state
-
-
-async def should_continue(state: State):
-    """Conditional edge: check if closed"""
-    if state.get("ended_once"):
-        logging.info("Thread already closed, skipping execution")
-        return END
-
-    return "input_validator"  # Normal flow
 
 
 async def call_langchain_reasoning_model(
@@ -115,7 +99,7 @@ async def call_langchain_reasoning_model(
 
     # Initialize ChatOpenAI with vision model
     llm: BaseChatModel | Runnable = await get_chat_llm()
-    msg_content:  Sequence[dict | str] = await prepare_llm_input(text_prompt, media_b64s)
+    msg_content: Sequence[dict | str] = await prepare_llm_input(text_prompt, media_b64s)
     '''
     message_content = [{"type": "text", "text": text_prompt}]
     # Add images to content array
@@ -196,7 +180,6 @@ async def process_response(state: State, response: AIMessage, user_input: str = 
         "retry_count": 0,
         "issue": user_input,
         "messages": [final_report[0]],
-        "ended_once": False,
         "final_report": agent_response,
     }
 
@@ -265,7 +248,6 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
         "retry_count": 0,
         "issue": state["issue"],
         "messages": [final_report[0]],
-        "ended_once": False,
         "final_report": str(agent_response)
     }
 

@@ -11,5 +11,4 @@ class State(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     issue: str
     final_report: str
-    ended_once: bool
     input_valid: bool

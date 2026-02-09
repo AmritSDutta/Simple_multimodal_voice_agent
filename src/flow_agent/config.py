@@ -73,6 +73,7 @@ class Settings(BaseSettings):
 
     MAX_IMAGES_PER_REQUEST: int = 4
     PII_CONFIDENCE_THRESHOLD: float = 0.5
+    IS_PII_REDACTION_ENABLED: bool = False
 
 
 # Global settings instance
