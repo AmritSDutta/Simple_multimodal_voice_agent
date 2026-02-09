@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
@@ -16,6 +18,8 @@ from src.flow_agent.utils.nodes import (
 from src.flow_agent.utils.state import State
 
 setup_logging()
+os.environ["LANGSMITH_TRACING_V2"] = settings.ENABLE_LANGSMITH_TRACING_V2
+os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
 
 
 class Context(TypedDict):

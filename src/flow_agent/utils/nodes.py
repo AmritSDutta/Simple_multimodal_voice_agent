@@ -13,6 +13,7 @@ from langgraph.constants import END
 from langgraph.runtime import Runtime
 from langgraph_api.schema import Context
 
+from src.flow_agent.utils.pii_redaction import PII_Redactor
 from src.flow_agent.utils.input_validation import scan_for_vulnerability
 from src.flow_agent.config import settings
 from src.flow_agent.llms.LangChainChatLLM import get_chat_llm
@@ -47,8 +48,17 @@ from src.flow_agent.utils.state import State
 
 async def entry_node(state: State):
     messages: list[BaseMessage] = state.get("messages")
+    pii_redactor = PII_Redactor()
+    redacted_message = await pii_redactor.do_pii_redaction([messages[-1]])
+
+    # Replace last message in state
+    messages = list(messages)  # copy list
+    messages[-1] = redacted_message[0]
+    state["messages"] = messages
+
     if messages:
         human_msg = messages[-1]
+
         content: str | list[str | dict] = human_msg.content
         if isinstance(content, str):
             # Handle plain string - convert to expected format
@@ -60,7 +70,7 @@ async def entry_node(state: State):
                 if hasattr(item, 'get') and item.get("type") == "text":
                     logging.info(f'user req: {item.get("text")}')
                 elif hasattr(item, 'get') and item.get("type") != 'text':
-                    logging.info(f'found {item.get("type")} media: {item.get("metadata")}')
+                    logging.info(f'found media of type: {item.get("type")}')
 
     if state.get("ended_once"):
         # Mark as closed
@@ -121,7 +131,8 @@ async def call_langchain_reasoning_model(
     multimodal_msg = HumanMessage(content=msg_content)
 
     response = await call_llm_safely(llm, multimodal_msg)
-    return process_response(state, response, text_prompt)
+    updated_state: State = await process_response(state, response, text_prompt)
+    return updated_state
 
 
 async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> list[dict[str, str | None | Any]]:
@@ -169,16 +180,20 @@ async def call_llm_safely(llm: BaseChatModel | Runnable, multimodal_msg: HumanMe
     return response
 
 
-def process_response(state: State, response: AIMessage, user_input: str = "") -> State:
+async def process_response(state: State, response: AIMessage, user_input: str = "") -> State:
     summary = response.content or "No response"
-    new_msg = AIMessage(content=f"Issue summary: {summary}")
+    genai_res = AIMessage(content=f"Issue summary: {summary}")
+
+    redactor = PII_Redactor(confidence_threshold=0.5)
+    final_report: List[BaseMessage] = await redactor.do_pii_redaction([genai_res])
+    agent_response: str = final_report[0].content
     return {
         "input_valid": True,
         "retry_count": 0,
         "issue": user_input,
-        "messages": [new_msg],
+        "messages": [final_report[0]],
         "ended_once": False,
-        "final_report": str(summary),
+        "final_report": agent_response,
     }
 
 
@@ -237,13 +252,17 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
 
     genai_res = AIMessage(content=f"Issue summary: {summary}")
 
+    redactor = PII_Redactor(confidence_threshold=0.5)
+    final_report = await redactor.do_pii_redaction([genai_res])
+    agent_response = final_report[0].content
+
     return {
         "input_valid": True,
         "retry_count": 0,
-        "issue": summary,
-        "messages": [genai_res],
+        "issue": state["issue"],
+        "messages": [final_report[0]],
         "ended_once": False,
-        "final_report": str(genai_res.content)
+        "final_report": str(agent_response)
     }
 
 

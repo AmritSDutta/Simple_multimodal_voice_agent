@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     FALLBACK_PROVIDER_IDENTIFIER: str = 'openai'
 
     PROVIDER_DISTRIBUTION: dict = {
-        GEMINI_PROVIDER_IDENTIFIER: 0.2,
-        OPENAI_PROVIDER_IDENTIFIER: 0.1,
+        GEMINI_PROVIDER_IDENTIFIER: 0.29,
+        OPENAI_PROVIDER_IDENTIFIER: 0.01,
         ZHIPU_PROVIDER_IDENTIFIER: 0.2,
         OLLAMA_PROVIDER_IDENTIFIER: 0.5,
     }
@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     OPENAI_SPEAKER: str = "coral"
     OPENAI_TTS_PACE: float = 1.1
     OPENAI_TTS_SAMPLE_RATE: int = 24000
+
+    ENABLE_LANGSMITH_TRACING_V2: str = "false"
+    LANGSMITH_PROJECT: str = 'multimodal_voice_agent'
 
 
 # Global settings instance
