@@ -6,9 +6,11 @@ from langchain_core.messages import BaseMessage
 from presidio_analyzer import AnalyzerEngine, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 
+from src.flow_agent.config import settings
+
 
 class PII_Redactor:
-    def __init__(self, confidence_threshold: float = 0.5):
+    def __init__(self, confidence_threshold: float = settings.PII_REDACTION_CONFIDENCE_THRESHOLD):
         self.analyzer = AnalyzerEngine(supported_languages=["en"])
         self.anonymizer = AnonymizerEngine()
         self.confidence_threshold = confidence_threshold

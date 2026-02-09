@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # circuit breaker
     MAX_TRY: int = 3
-    SLEEP: int = 1
+    SLEEP_IN_SECONDS: int = 1
 
     # MODEL choices
     GEMINI_VISION_MODEL: str = 'gemma-3-27b-it'
@@ -28,10 +28,10 @@ class Settings(BaseSettings):
     FALLBACK_PROVIDER_IDENTIFIER: str = 'openai'
 
     PROVIDER_DISTRIBUTION: dict = {
-        GEMINI_PROVIDER_IDENTIFIER: 0.29,
+        GEMINI_PROVIDER_IDENTIFIER: 0.39,
         OPENAI_PROVIDER_IDENTIFIER: 0.01,
         ZHIPU_PROVIDER_IDENTIFIER: 0.2,
-        OLLAMA_PROVIDER_IDENTIFIER: 0.5,
+        OLLAMA_PROVIDER_IDENTIFIER: 0.4,
     }
     OLLAMA_BASE_URL: str = "https://ollama.com"
     ZHIPU_BASE_URL: str = "https://api.z.ai/api/paas/v4/"
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     ZHIPU_KEY_STRING: str = "ZAI_API_KEY"
 
     REASONING_NODE_PREFERENCE: str = 'langchain'
-    MODERATION_API_CHECK_REQ: bool = 'True'
+    MODERATION_API_CHECK_REQ: bool = True
     MODERATION_MODEL: str = 'omni-moderation-latest'  # OpenAI (omni-moderation-latest) -> text + image
 
     # Speech Service Configuration
@@ -70,6 +70,9 @@ class Settings(BaseSettings):
 
     ENABLE_LANGSMITH_TRACING_V2: str = "false"
     LANGSMITH_PROJECT: str = 'multimodal_voice_agent'
+
+    MAX_IMAGES_PER_REQUEST: int = 4
+    PII_CONFIDENCE_THRESHOLD: float = 0.5
 
 
 # Global settings instance

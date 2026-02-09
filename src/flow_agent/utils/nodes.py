@@ -140,9 +140,13 @@ async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> l
     prepare multimodal or text based message for llm depending on the parameter
     """
     message_content: list[str | dict] = [{"type": "text", "text": text_prompt}]
+    if len(media_b64s) > settings.MAX_IMAGES_PER_REQUEST:
+        # Limit to 4 images
+        logging.info(f"more images: {len(media_b64s)} "
+                     f"were passed for analysis than supported ({settings.MAX_IMAGES_PER_REQUEST}), will be ignored")
     # Add images to content array
     if media_b64s:
-        for b64_image in media_b64s[:4]:  # Limit to 4 images
+        for b64_image in media_b64s[:settings.MAX_IMAGES_PER_REQUEST]:
             message_content.append(
                 {
                     "type": "image_url",
@@ -156,7 +160,7 @@ async def call_llm_safely(llm: BaseChatModel | Runnable, multimodal_msg: HumanMe
     """
     A trivial circuit breaker with exponential backoff
     """
-    sleep_time = settings.SLEEP
+    sleep_time = settings.SLEEP_IN_SECONDS
     response = None
     for i in range(settings.MAX_TRY):
         try:
