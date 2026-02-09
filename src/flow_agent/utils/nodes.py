@@ -114,7 +114,8 @@ async def call_langchain_reasoning_model(
     '''
     multimodal_msg = HumanMessage(content=msg_content)
 
-    response = await call_llm_safely(llm, multimodal_msg)
+    # Pass full conversation history for multi-turn context
+    response = await call_llm_safely(llm, messages, multimodal_msg)
     updated_state: State = await process_response(state, response, text_prompt)
     return updated_state
 
@@ -124,7 +125,7 @@ async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> l
     prepare multimodal or text based message for llm depending on the parameter
     """
     message_content: list[str | dict] = [{"type": "text", "text": text_prompt}]
-    if len(media_b64s) > settings.MAX_IMAGES_PER_REQUEST:
+    if media_b64s and len(media_b64s) > settings.MAX_IMAGES_PER_REQUEST:
         # Limit to 4 images
         logging.info(f"more images: {len(media_b64s)} "
                      f"were passed for analysis than supported ({settings.MAX_IMAGES_PER_REQUEST}), will be ignored")
@@ -140,15 +141,21 @@ async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> l
     return message_content
 
 
-async def call_llm_safely(llm: BaseChatModel | Runnable, multimodal_msg: HumanMessage) -> Any:
+async def call_llm_safely(
+    llm: BaseChatModel | Runnable,
+    conversation: List[BaseMessage],
+    new_message: HumanMessage
+) -> Any:
     """
-    A trivial circuit breaker with exponential backoff
+    A trivial circuit breaker with exponential backoff.
+    Receives full conversation history for multi-turn context.
     """
     sleep_time = settings.SLEEP_IN_SECONDS
     response = None
+    full_context = conversation + [new_message]
     for i in range(settings.MAX_TRY):
         try:
-            response = await llm.ainvoke([multimodal_msg])
+            response = await llm.ainvoke(full_context)
             logging.info(f"response details: {response.response_metadata}")
             return response
         except Exception as e:
@@ -159,7 +166,7 @@ async def call_llm_safely(llm: BaseChatModel | Runnable, multimodal_msg: HumanMe
                 logging.error(f"Attempt exhausted: {e}, trying alternative")
                 try:
                     llm = await get_chat_llm(settings.FALLBACK_PROVIDER_IDENTIFIER)
-                    response = await llm.ainvoke([multimodal_msg])
+                    response = await llm.ainvoke(full_context)
                     return response
                 except Exception as ae:
                     logging.error(f"trying alternative failed too: {ae}")
@@ -179,7 +186,7 @@ async def process_response(state: State, response: AIMessage, user_input: str = 
         "input_valid": True,
         "retry_count": 0,
         "issue": user_input,
-        "messages": [final_report[0]],
+        "messages": final_report,  # add_messages reducer will append this
         "final_report": agent_response,
     }
 
@@ -246,8 +253,8 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
     return {
         "input_valid": True,
         "retry_count": 0,
-        "issue": state["issue"],
-        "messages": [final_report[0]],
+        "issue": state.get("issue", ""),
+        "messages": final_report,  # add_messages reducer will append this
         "final_report": str(agent_response)
     }
 
