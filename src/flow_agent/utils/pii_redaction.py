@@ -10,12 +10,19 @@ from src.flow_agent.config import settings
 
 
 class PII_Redactor:
+    """
+    Helps in doing redaction of given langchain based messages
+    """
     def __init__(self, confidence_threshold: float = settings.PII_REDACTION_CONFIDENCE_THRESHOLD):
         self.analyzer = AnalyzerEngine(supported_languages=["en"])
         self.anonymizer = AnonymizerEngine()
         self.confidence_threshold = confidence_threshold
 
     async def do_pii_redaction(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """
+        It first analyses whether to perform anonymization and then perform anonymization.
+        It is only effects textual messages.
+        """
         logging.info("PII redaction started")
         redacted_messages: List[BaseMessage] = [
             await self._do_pii_redaction_on_message(msg) for msg in messages
