@@ -158,7 +158,8 @@ async def call_llm_safely(
     for i in range(settings.MAX_TRY):
         try:
             response = await llm.ainvoke(full_context)
-            logging.info(f"response details: {response.response_metadata}")
+            logging.info(f"response metadata: {response.response_metadata}")
+            logging.info(f"usage metadata: {response.usage_metadata}")
             return response
         except Exception as e:
             logging.warning(f"Attempt {i + 1} failed: {e}")

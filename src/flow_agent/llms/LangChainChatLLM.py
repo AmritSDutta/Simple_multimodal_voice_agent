@@ -109,7 +109,7 @@ async def get_summarization_models(provider: str | None) -> tuple[BaseChatModel 
             openai_api_base=settings.ZHIPU_BASE_URL  # type: ignore[arg-type]
         )
     elif provider.lower() == settings.SARVAM_PROVIDER_IDENTIFIER:
-        llm = SarvamChat()
+        llm = SarvamChat(reasoning_effort='low')
     else:
         api_key = os.getenv(settings.OLLAMA_KEY_STRING)
         if api_key is None:
