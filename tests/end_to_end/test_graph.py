@@ -29,6 +29,18 @@ async def test_graph_flow_text_only():
 
 @pytest.mark.asyncio
 async def test_graph_flow_with_image(resources_path, image_to_base64_fixture):
+    custom_settings = settings.model_copy(update={
+        "MAX_TRY": 1,
+        "SLEEP": 0,
+        "PROVIDER_DISTRIBUTION": {
+            "gemini": 1.0,
+            "openai": 0.0,
+            "zhipu": 0.0,
+            "ollama": 0.0,
+        },
+        "FALLBACK_PROVIDER_IDENTIFIER": "gemini",
+        "GEMINI_VISION_MODEL": "gemma-3-12b-it",
+    })
     compiled_graph = graph.compile()
     image_base64 = image_to_base64_fixture(str(resources_path / 'olap.png'))
     content = [{"type": "text", "text": 'explain the attached image  in 10 words'}]

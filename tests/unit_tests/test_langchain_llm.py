@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from src.flow_agent.config import settings
-from src.flow_agent.llms.LangChainChatLLM import _get_random_provider
+from src.flow_agent.llms.LangChainChatLLM import _get_random_provider, _get_random_summarizing_provider
 
 
 class TestGetRandomProvider:
@@ -53,8 +53,8 @@ class TestGetRandomProvider:
 
         _get_random_provider()
 
-        expected_names = list(settings.PROVIDER_DISTRIBUTION.keys())
-        expected_weights = list(settings.PROVIDER_DISTRIBUTION.values())
+        expected_names = list(settings.VISION_PROVIDER_DISTRIBUTION.keys())
+        expected_weights = list(settings.VISION_PROVIDER_DISTRIBUTION.values())
         mock_choices.assert_called_once_with(
             expected_names, weights=expected_weights, k=1
         )
@@ -73,7 +73,7 @@ class TestGetRandomProvider:
 
     def test_always_returns_valid_provider(self):
         """Property-based test: result must always be one of the valid providers."""
-        valid_providers = set(settings.PROVIDER_DISTRIBUTION.keys())
+        valid_providers = set(settings.VISION_PROVIDER_DISTRIBUTION.keys())
 
         for _ in range(100):
             result = _get_random_provider()
@@ -96,7 +96,7 @@ class TestGetRandomProvider:
 
         # Check each provider is within expected range (±5% tolerance)
         tolerance = 0.05
-        for provider, expected_weight in settings.PROVIDER_DISTRIBUTION.items():
+        for provider, expected_weight in settings.VISION_PROVIDER_DISTRIBUTION.items():
             actual_ratio = counts[provider] / num_runs
             delta = abs(actual_ratio - expected_weight)
 
@@ -117,9 +117,54 @@ class TestGetRandomProvider:
         results = [_get_random_provider() for _ in range(num_runs)]
         counts = collections.Counter(results)
 
-        all_providers = set(settings.PROVIDER_DISTRIBUTION.keys())
+        all_providers = set(settings.VISION_PROVIDER_DISTRIBUTION.keys())
         selected_providers = set(counts.keys())
 
         assert (
             selected_providers == all_providers
+        ), f"Missing providers: {all_providers - selected_providers}"
+
+    @pytest.mark.slow
+    def test_summarizer_distribution_matches_weights(self):
+        """
+        Statistical test: Run many times and verify distribution matches expected weights.
+
+        This is a slower test that verifies the weighted random selection is working
+        correctly. Marked as @pytest.mark.slow so it can be skipped during rapid
+        development runs.
+        """
+        import collections
+
+        num_runs = 1000
+        results = [_get_random_summarizing_provider() for _ in range(num_runs)]
+        counts = collections.Counter(results)
+
+        # Check each provider is within expected range (±5% tolerance)
+        tolerance = 0.05
+        for provider, expected_weight in settings.SUMMARIZATION_PROVIDER_DISTRIBUTION.items():
+            actual_ratio = counts[provider] / num_runs
+            delta = abs(actual_ratio - expected_weight)
+
+            assert (
+                    delta < tolerance
+            ), f"{provider}: expected {expected_weight:.2f}, got {actual_ratio:.2f} (delta={delta:.3f})"
+
+    @pytest.mark.slow
+    def test_all_providers_appear_in_summarizer_distribution(self):
+        """
+        Verify that all providers appear at least once in a large sample.
+
+        This tests that no provider is unreachable due to configuration errors.
+        """
+        import collections
+
+        num_runs = 500
+        results = [_get_random_summarizing_provider() for _ in range(num_runs)]
+        counts = collections.Counter(results)
+
+        all_providers = set(settings.SUMMARIZATION_PROVIDER_DISTRIBUTION.keys())
+        selected_providers = set(counts.keys())
+
+        assert (
+                selected_providers == all_providers
         ), f"Missing providers: {all_providers - selected_providers}"

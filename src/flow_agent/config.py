@@ -19,15 +19,18 @@ class Settings(BaseSettings):
     GEMINI_VISION_MODEL: str = 'gemma-3-27b-it'
     OPENAI_VISION_MODEL: str = 'gpt-5-nano'
     ZHIPU_VISION_MODEL: str = 'GLM-4.6V-Flash'
+    ZHIPU_SUMMARIZATION_MODEL: str = 'GLM-4.7-Flash'
     OLLAMA_VISION_MODEL: str = 'qwen3-vl:235b-instruct-cloud'
+    OLLAMA_SUMMARIZATION_MODEL: str = 'nemotron-3-nano:30b-cloud'
 
     GEMINI_PROVIDER_IDENTIFIER: str = 'gemini'
     OPENAI_PROVIDER_IDENTIFIER: str = 'openai'
     ZHIPU_PROVIDER_IDENTIFIER: str = 'zhipu'
     OLLAMA_PROVIDER_IDENTIFIER: str = 'ollama'
     FALLBACK_PROVIDER_IDENTIFIER: str = 'openai'
+    SARVAM_PROVIDER_IDENTIFIER: str = 'sarvam'
 
-    PROVIDER_DISTRIBUTION: dict = {
+    VISION_PROVIDER_DISTRIBUTION: dict = {
         GEMINI_PROVIDER_IDENTIFIER: 0.7,
         OPENAI_PROVIDER_IDENTIFIER: 0.01,
         ZHIPU_PROVIDER_IDENTIFIER: 0.1,
@@ -37,6 +40,14 @@ class Settings(BaseSettings):
     ZHIPU_BASE_URL: str = "https://api.z.ai/api/paas/v4/"
     OLLAMA_KEY_STRING: str = "OLLAMA_API_KEY"
     ZHIPU_KEY_STRING: str = "ZAI_API_KEY"
+
+    SUMMARIZATION_PROVIDER_DISTRIBUTION: dict = {
+        OLLAMA_PROVIDER_IDENTIFIER: 0.5,
+        SARVAM_PROVIDER_IDENTIFIER: 0.3,
+        GEMINI_PROVIDER_IDENTIFIER: 0.1,
+        ZHIPU_PROVIDER_IDENTIFIER: 0.09,
+        OPENAI_PROVIDER_IDENTIFIER: 0.01,
+    }
 
     REASONING_NODE_PREFERENCE: str = 'langchain'
     MODERATION_API_CHECK_REQ: bool = True
@@ -68,7 +79,7 @@ class Settings(BaseSettings):
     OPENAI_TTS_PACE: float = 1.1
     OPENAI_TTS_SAMPLE_RATE: int = 24000
 
-    ENABLE_LANGSMITH_TRACING_V2: str = "false"
+    ENABLE_LANGSMITH_TRACING_V2: str = "true"
     LANGSMITH_PROJECT: str = 'multimodal_voice_agent'
 
     MAX_IMAGES_PER_REQUEST: int = 2
@@ -76,7 +87,7 @@ class Settings(BaseSettings):
     IS_PII_REDACTION_ENABLED: bool = False
 
     # Summarization Settings
-    SUMMARY_MESSAGE_THRESHOLD: int = 10  # Trigger after N messages
+    SUMMARY_MESSAGE_THRESHOLD: int = 4  # Trigger after N messages
     SUMMARY_PROVIDER_PREFERENCE: str = 'langchain'  # 'langchain' or 'genai'
 
 

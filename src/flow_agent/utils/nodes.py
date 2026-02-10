@@ -320,14 +320,15 @@ async def call_langchain_summarizer(state: State, runtime: Runtime[Context]) -> 
         ])
 
         summary_prompt = f"""
-        Summarize the following conversation into a concise context (max 200 words).
+        Summarize the following conversation into a concise english context (max 500 words).
         Focus on key information provided and important outcomes.
+        If you think it is fact retain it as is.
 
         AI Responses:
         {conversation_text}
         """
 
-        llm = await get_chat_llm()  # Uses weighted provider selection
+        llm = await get_chat_llm(is_summarizer=True)  # Uses weighted provider selection
         response = await call_llm_safely(llm, [], HumanMessage(content=summary_prompt))
         summary = response.content if hasattr(response, 'content') else str(response)
 
