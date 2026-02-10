@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     OPENAI_TTS_PACE: float = 1.1
     OPENAI_TTS_SAMPLE_RATE: int = 24000
 
-    ENABLE_LANGSMITH_TRACING_V2: str = "true"
+    ENABLE_LANGSMITH_TRACING_V2: str = "false"
     TRACING_PROJECT_NAME: str = 'multimodal_voice_agent'
     ARIZE_TRACING_ENABLED: bool = False
 
