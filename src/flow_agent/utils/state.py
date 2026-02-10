@@ -12,3 +12,4 @@ class State(TypedDict):
     issue: str
     final_report: str
     input_valid: bool
+    conversation_summary: str  # Stores conversation summaries

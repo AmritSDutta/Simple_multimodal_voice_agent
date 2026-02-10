@@ -12,7 +12,10 @@ from src.flow_agent.utils.nodes import (
     entry_node,
     call_gemini_reasoning_model,
     call_langchain_reasoning_model,
-    call_input_validation, route_after_validation,
+    call_langchain_summarizer,
+    call_input_validation,
+    route_after_validation,
+    should_summarize,
 
 )
 from src.flow_agent.utils.state import State
@@ -35,8 +38,10 @@ graph = (
               call_langchain_reasoning_model if settings.REASONING_NODE_PREFERENCE == 'langchain'
               else call_gemini_reasoning_model
               )
+    .add_node("summarizer", call_langchain_summarizer)
     .add_edge(START, "entry")
     .add_edge("entry", "input_validator")
     .add_conditional_edges("input_validator", route_after_validation, {"reasoning": "reasoning", END: END})
-    .add_edge("reasoning", END)
+    .add_conditional_edges("reasoning", should_summarize, {"summarizer": "summarizer", END: END})
+    .add_edge("summarizer", END)
 )
