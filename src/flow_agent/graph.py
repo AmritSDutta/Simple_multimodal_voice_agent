@@ -6,6 +6,7 @@ from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 
+from src.flow_agent.utils.arize_config import configure_arize
 from src.flow_agent.config import settings
 from src.flow_agent.logging_config import setup_logging
 from src.flow_agent.utils.nodes import (
@@ -22,8 +23,8 @@ from src.flow_agent.utils.state import State
 
 setup_logging()
 os.environ["LANGSMITH_TRACING_V2"] = settings.ENABLE_LANGSMITH_TRACING_V2
-os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
-
+os.environ["LANGSMITH_PROJECT"] = settings.TRACING_PROJECT_NAME
+configure_arize()
 
 class Context(TypedDict):
     my_configurable_param: str

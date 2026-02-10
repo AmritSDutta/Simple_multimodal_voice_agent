@@ -80,7 +80,8 @@ class Settings(BaseSettings):
     OPENAI_TTS_SAMPLE_RATE: int = 24000
 
     ENABLE_LANGSMITH_TRACING_V2: str = "true"
-    LANGSMITH_PROJECT: str = 'multimodal_voice_agent'
+    TRACING_PROJECT_NAME: str = 'multimodal_voice_agent'
+    ARIZE_TRACING_ENABLED: bool = False
 
     MAX_IMAGES_PER_REQUEST: int = 2
     PII_CONFIDENCE_THRESHOLD: float = 0.5
