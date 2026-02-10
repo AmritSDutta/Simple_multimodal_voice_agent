@@ -1,6 +1,8 @@
 import base64
 import logging
 import os
+import io  # New import
+import wave  # New import
 
 from google import genai
 from google.genai import types, Client
@@ -8,6 +10,17 @@ from google.genai import types, Client
 from src.flow_agent.speech.interface import SpeechService
 
 logger = logging.getLogger(__name__)
+
+
+def add_wav_header(pcm_data: bytes, sample_rate: int, channels: int = 1, bit_depth: int = 16) -> bytes:
+    """Adds a WAV header to raw PCM data."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(bit_depth // 8)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
+    return buffer.getvalue()
 
 
 class GenAiSpeechService(SpeechService):
@@ -55,7 +68,7 @@ class GenAiSpeechService(SpeechService):
         return "gemini"
 
     async def speech_to_text(
-        self, audio_bytes: bytes, file_extension: str = ".webm"
+        self, audio_bytes: bytes, file_extension: str = ".wav"
     ) -> str | None:
         """
         Convert audio to text using Google GenAI STT.
@@ -63,16 +76,20 @@ class GenAiSpeechService(SpeechService):
         try:
             logger.info("Starting Google GenAI STT transcription")
 
-            # Determine MIME type from file extension
-            mime_type = "audio/webm" if file_extension == ".webm" else "audio/mp3"
+            # Encapsulate the raw audio with a WAV header
+            # Use the sample rate configured for TTS, as the audio_bytes come from TTS
+            wav_data_with_header = add_wav_header(audio_bytes, sample_rate=self._tts_sample_rate)
+            
+            # Explicitly set MIME type to audio/wav as we've just created a WAV file
+            mime_type = "audio/wav"
 
-            # Use the audio_bytes parameter directly with GenAI client
+            # Use the wav_data_with_header for the API call
             response = self.client.models.generate_content(
                 model=self._stt_model,
                 contents=[  # type: ignore[arg-type]
                     "Transcribe this audio clip",
                     types.Part.from_bytes(
-                        data=audio_bytes,
+                        data=wav_data_with_header,  # Use the data with header
                         mime_type=mime_type,
                     ),
                 ],
