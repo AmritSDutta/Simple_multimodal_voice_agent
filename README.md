@@ -8,7 +8,8 @@ Meet your new favorite conversational companion: a LangGraph-based multimodal vo
 
 - **🗣️ Voice Input & Output** — Talk to your computer. It talks back. Welcome to the future.
 - **📷 Image Analysis** — Upload images and the AI will tell you what's in them. (Spoiler: it's probably a cat.)
-- **🧠 Multiple LLM Brains** — Choose between OpenAI, Google Gemini, Zhipu/Zai, or Ollama. Variety is the spice of life.
+- **🧠 Multiple LLM Brains** — Choose between OpenAI, Google Gemini, Zhipu/Zai, SarvamAI, or Ollama. Variety is the spice of life.
+- **🔄 Conversation Memory** — Automatic summarization keeps long conversations fresh without losing context.
 - **🔍 Built-in Search** — DuckDuckGo integration means it can fact-check itself. Imagine if humans could do that.
 - **🛡️ Enterprise Security** — Input validation, OpenAI moderation, and PII redaction using Microsoft Presidio.
 - **🎨 Pretty Web Interface** — Streamlit-powered UI that won't hurt your eyes.
@@ -51,9 +52,7 @@ ZAI_API_KEY=your_key_here          # For Zhipu/Zai
 OLLAMA_API_KEY=your_key_here       # For Ollama
 OPENAI_API_KEY=your_key_here       # For OpenAI (also used for moderation API)
 GOOGLE_API_KEY=your_key_here       # For Google Gemini
-
-# Speech Service API Keys
-SARVAM_API_KEY=your_sarvam_key     # For SarvamAI speech (STT/TTS)
+SARVAM_API_KEY=your_key_here       # For SarvamAI (LLM + Speech)
 
 # Optional: LangSmith Tracing
 LANGSMITH_API_KEY=your_langsmith_key
@@ -61,7 +60,10 @@ LANGCHAIN_PROJECT=multimodal_voice_agent
 
 # Optional: Feature Flags
 MODERATION_API_CHECK_REQ=True      # Enable OpenAI moderation API
+IS_PII_REDACTION_ENABLED=False     # Enable PII redaction (slow but thorough)
 SPEECH_PROVIDER=sarvam              # Default speech provider (sarvam/openai/gemini)
+SUMMARY_PROVIDER_PREFERENCE=langchain  # Summarization backend (langchain/genai)
+SUMMARY_MESSAGE_THRESHOLD=4        # Trigger summarization after N messages
 ```
 
 **⚠️ Important Note for Docker Deployment:**
@@ -107,9 +109,9 @@ langgraph build
 The agent is built as a LangGraph StateGraph with defense-in-depth security:
 
 ```
-START → entry → conditional edge → input_validator → conditional edge → reasoning → END
-                    ↓                                      ↓
-                   END (if closed)                     END (if invalid)
+START → entry → conditional edge → input_validator → conditional edge → reasoning → conditional edge → summarizer → END
+                    ↓                                      ↓                                       ↓
+                   END (if closed)                     END (if invalid)                        END (if < threshold)
 ```
 
 **What's happening here?**
@@ -117,7 +119,20 @@ START → entry → conditional edge → input_validator → conditional edge �
 - **entry** — Checks if you've already had this conversation. No double-dipping.
 - **input_validator** — Multi-layer security: pattern-based vulnerability scanning + OpenAI moderation API
 - **reasoning** — The LLM does its thing, processing your text/images with style.
-- **conditional edges** — Smart routing based on thread status and validation results.
+- **summarizer** — When conversations get long, automatically summarizes older messages while retaining images.
+- **conditional edges** — Smart routing based on thread status, validation results, and message count.
+
+### Conversation Memory & Summarization
+
+The agent maintains conversation history with automatic summarization:
+
+- **Trigger**: After `SUMMARY_MESSAGE_THRESHOLD` messages (default: 4)
+- **Retention**:
+  - All human messages (questions) are kept
+  - Last 2 AI responses are retained
+  - Older messages are summarized
+  - Up to `MAX_IMAGES_PER_REQUEST` images are preserved
+- **Storage**: Summaries stored in `conversation_summary` state field
 
 ### Multimodal Content
 
@@ -151,26 +166,55 @@ The agent implements enterprise-grade security with three layers:
    - Returns flagged categories for compliance logging
 
 3. **PII Redaction** (Microsoft Presidio):
-   - Implemented but not enabled by default
+   - Disabled by default (set `IS_PII_REDACTION_ENABLED=True` to enable)
    - Detects emails, phone numbers, SSN, credit cards, URLs, IP addresses, etc.
-   - To enable: add PII redaction node before `input_validator` in graph
+   - To enable: Set `IS_PII_REDACTION_ENABLED=True` in `.env`
 
 ## 🧩 LLM Provider Options
 
+### Vision/Reasoning Models
+
 | Provider | Model | Vibe |
 |----------|-------|------|
-| `ollama` | `qwen3-vl:235b-instruct-cloud` | The hipster choice |
-| `zhipu` / `zai` | `GLM-4.6V-Flash` | Vision-capable and ready |
-| `openai` | `gpt-5-nano` | The classic |
-| `gemini` | `gemma-3-27b-it` | Google's contribution |
+| `gemini` | `gemma-3-27b-it` | The heavy lifter (70% weight) |
+| `ollama` | `qwen3-vl:235b-instruct-cloud` | The cloud power house (20% weight) |
+| `zhipu` / `zai` | `GLM-4.6V-Flash` | Vision-capable and ready (10% weight) |
+| `openai` | `gpt-5-nano` | The expensive option (1% weight) |
 
 **Automatic provider selection** uses weighted distribution (configurable in `src/flow_agent/config.py`):
-- `ollama`: 50% (default)
-- `zhipu`: 20%
-- `gemini`: 20%
-- `openai`: 10%
 
-**Manual selection**: Edit `src/flow_agent/utils/nodes.py` to specify a provider.
+```python
+VISION_PROVIDER_DISTRIBUTION = {
+    "gemini": 0.7,
+    "ollama": 0.2,
+    "zhipu": 0.1,
+    "openai": 0.01,
+}
+```
+
+### Summarization Models
+
+Separate distribution optimized for summarization tasks:
+
+| Provider | Model | Vibe |
+|----------|-------|------|
+| `ollama` | `nemotron-3-nano:30b-cloud` | The summarization specialist (50% weight) |
+| `sarvam` | `sarvam-1` | The newcomer (30% weight) |
+| `gemini` | `gemma-3-27b-it` | Reliable workhorse (10% weight) |
+| `zhipu` / `zai` | `GLM-4.7-Flash` | Speed demon (9% weight) |
+| `openai` | `gpt-5-nano` | When money is no object (1% weight) |
+
+```python
+SUMMARIZATION_PROVIDER_DISTRIBUTION = {
+    "ollama": 0.5,
+    "sarvam": 0.3,
+    "gemini": 0.1,
+    "zhipu": 0.09,
+    "openai": 0.01,
+}
+```
+
+**Manual selection**: Edit `src/flow_agent/config.py` to adjust weights or specify a preferred provider.
 
 ## 🗣️ Speech Features
 
@@ -225,13 +269,21 @@ pytest -v
 
 # Run specific test file
 pytest tests/unit_tests/test_pii_redaction.py
+
+# Run without warnings
+pytest -p no:warnings
 ```
 
-**Test Coverage:**
-- 72 tests across 3 test files
-- Unit tests for LLM provider selection
-- Unit tests for PII redaction (15 tests)
-- Unit tests for speech services (45 tests)
+**Test Coverage (93 tests total):**
+- **End-to-end tests**: 14 tests
+  - Graph flow tests (text + multimodal)
+  - Summarization trigger and retention logic
+  - Media handling and image limiting
+- **Unit tests**: 79 tests
+  - LLM provider selection (14 tests)
+  - PII redaction (15 tests)
+  - Speech services (45 tests)
+  - Multiturn memory (5 tests)
 
 ## 📁 Project Structure
 
@@ -241,12 +293,12 @@ pytest tests/unit_tests/test_pii_redaction.py
 │   ├── graph.py                 # LangGraph definition
 │   ├── config.py                # Pydantic settings
 │   ├── utils/
-│   │   ├── state.py             # State management
-│   │   ├── nodes.py             # Processing nodes
+│   │   ├── state.py             # State management (includes conversation_summary)
+│   │   ├── nodes.py             # Processing nodes (reasoning, summarizer)
 │   │   ├── input_validation.py  # Security: vulnerability scanning
 │   │   └── pii_redaction.py     # Privacy: PII redaction
 │   ├── llms/
-│   │   └── LangChainChatLLM.py  # Multi-provider interface
+│   │   └── LangChainChatLLM.py  # Multi-provider interface with summarization support
 │   ├── speech/
 │   │   ├── interface.py         # Abstract speech service interface
 │   │   ├── factory.py           # Provider factory
@@ -257,7 +309,8 @@ pytest tests/unit_tests/test_pii_redaction.py
 ├── ui/
 │   └── app.py                   # Streamlit web interface
 ├── tests/
-│   ├── unit_tests/              # 72 unit tests
+│   ├── unit_tests/              # 79 unit tests
+│   ├── end_to_end/              # 14 end-to-end tests
 │   └── conftest.py              # Test fixtures
 ├── langgraph.json               # LangGraph configuration
 ├── .env.example                 # Environment variable template
@@ -277,11 +330,33 @@ pytest tests/unit_tests/test_pii_redaction.py
 
 Key settings configurable via environment variables:
 
-- **Circuit Breaker**: `MAX_TRY`, `SLEEP` (retry behavior)
-- **Models**: `GEMINI_VISION_MODEL`, `OPENAI_VISION_MODEL`, etc.
-- **Provider Distribution**: `PROVIDER_DISTRIBUTION` (weighted random selection)
-- **Security**: `MODERATION_API_CHECK_REQ`, `MODERATION_MODEL`
-- **Speech**: `SPEECH_PROVIDER`, model and language settings per provider
+**Circuit Breaker:**
+- `MAX_TRY`: Maximum retry attempts (default: 3)
+- `SLEEP_IN_SECONDS`: Initial backoff time (default: 1)
+
+**Vision/Reasoning Models:**
+- `GEMINI_VISION_MODEL`, `OPENAI_VISION_MODEL`, `ZHIPU_VISION_MODEL`, `OLLAMA_VISION_MODEL`
+- `VISION_PROVIDER_DISTRIBUTION`: Weighted distribution for automatic provider selection
+
+**Summarization Models:**
+- `ZHIPU_SUMMARIZATION_MODEL`, `OLLAMA_SUMMARIZATION_MODEL`
+- `SUMMARIZATION_PROVIDER_DISTRIBUTION`: Weighted distribution for summarization
+- `SUMMARY_MESSAGE_THRESHOLD`: Trigger summarization after N messages (default: 4)
+- `MAX_IMAGES_PER_REQUEST`: Maximum images to retain (default: 2)
+
+**Node Selection:**
+- `REASONING_NODE_PREFERENCE`: `'langchain'` or `'genai'`
+- `SUMMARY_PROVIDER_PREFERENCE`: `'langchain'` or `'genai'`
+
+**Security:**
+- `MODERATION_API_CHECK_REQ`: Enable/disable moderation API (default: True)
+- `MODERATION_MODEL`: OpenAI moderation model (default: `omni-moderation-latest`)
+- `IS_PII_REDACTION_ENABLED`: Enable/disable PII redaction (default: False)
+- `PII_CONFIDENCE_THRESHOLD`: PII detection threshold (default: 0.5)
+
+**Speech:**
+- `SPEECH_PROVIDER`: Default speech provider (`sarvam`/`openai`/`gemini`)
+- Provider-specific settings (STT/TTS models, language, speaker, pace, sample rate)
 
 ## 🤝 Contributing
 

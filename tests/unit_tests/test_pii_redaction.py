@@ -1,9 +1,19 @@
 """Unit tests for PII redaction module."""
 
 import pytest
+from unittest.mock import patch
 
 from langchain_core.messages import HumanMessage
+from src.flow_agent.config import settings
 from src.flow_agent.utils.pii_redaction import PII_Redactor
+
+
+@pytest.fixture
+def pii_enabled_settings():
+    """Fixture to enable PII redaction for tests."""
+    custom_settings = settings.model_copy(update={"IS_PII_REDACTION_ENABLED": True})
+    with patch("src.flow_agent.utils.pii_redaction.settings", custom_settings):
+        yield custom_settings
 
 
 class TestPIIRedaction:
@@ -23,7 +33,7 @@ class TestPIIRedaction:
 
     # Positive test cases - PII should be detected and redacted
     @pytest.mark.asyncio
-    async def test_redacts_email_address(self):
+    async def test_redacts_email_address(self, pii_enabled_settings):
         """Test that email addresses are properly redacted."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         message = HumanMessage(content="My email is john.doe@example.com")
@@ -38,7 +48,7 @@ class TestPIIRedaction:
         assert "<EMAIL_ADDRESS>" in content
 
     @pytest.mark.asyncio
-    async def test_redacts_person_name(self):
+    async def test_redacts_person_name(self, pii_enabled_settings):
         """Test that person names are properly redacted."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         message = HumanMessage(content="My name is John Smith")
@@ -52,7 +62,7 @@ class TestPIIRedaction:
         assert "<PERSON>" in content
 
     @pytest.mark.asyncio
-    async def test_redacts_url(self):
+    async def test_redacts_url(self, pii_enabled_settings):
         """Test that URLs are properly redacted."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         message = HumanMessage(content="Visit my website at https://example.com/profile/john")
@@ -66,7 +76,7 @@ class TestPIIRedaction:
         assert "<URL>" in content
 
     @pytest.mark.asyncio
-    async def test_redacts_ip_address(self):
+    async def test_redacts_ip_address(self, pii_enabled_settings):
         """Test that IP addresses are properly redacted."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         message = HumanMessage(content="Connect to 192.168.1.1 for access")
@@ -80,7 +90,7 @@ class TestPIIRedaction:
         assert "<IP_ADDRESS>" in content
 
     @pytest.mark.asyncio
-    async def test_redacts_multiple_pii_types_in_single_message(self):
+    async def test_redacts_multiple_pii_types_in_single_message(self, pii_enabled_settings):
         """Test that multiple PII types in one message are all redacted."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         message = HumanMessage(
@@ -150,7 +160,7 @@ class TestPIIRedaction:
 
     # Mixed test cases - Multimodal content with PII and non-PII elements
     @pytest.mark.asyncio
-    async def test_multimodal_message_redacts_only_text_with_pii(self):
+    async def test_multimodal_message_redacts_only_text_with_pii(self, pii_enabled_settings):
         """Test that multimodal messages redact PII in text but preserve other media."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         content = [
@@ -178,7 +188,7 @@ class TestPIIRedaction:
         assert "<PERSON>" in result_content[2]["text"]
 
     @pytest.mark.asyncio
-    async def test_mixed_content_partial_pii_redaction(self):
+    async def test_mixed_content_partial_pii_redaction(self, pii_enabled_settings):
         """Test message with both PII and safe content mixed together."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         message = HumanMessage(
@@ -200,7 +210,7 @@ class TestPIIRedaction:
         assert "Hello" in content or "project" in content or "deadline" in content
 
     @pytest.mark.asyncio
-    async def test_multiple_messages_with_varying_pii_content(self):
+    async def test_multiple_messages_with_varying_pii_content(self, pii_enabled_settings):
         """Test processing multiple messages with different PII scenarios."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         messages = [
@@ -244,7 +254,7 @@ class TestPIIRedaction:
         # Lenient may redact more aggressively
 
     @pytest.mark.asyncio
-    async def test_does_not_modify_original_message(self):
+    async def test_does_not_modify_original_message(self, pii_enabled_settings):
         """Test that the original message object is not modified (immutability)."""
         redactor = PII_Redactor(confidence_threshold=0.5)
         original_content = "My email is original@example.com"

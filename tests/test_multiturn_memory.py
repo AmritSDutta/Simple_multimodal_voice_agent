@@ -50,7 +50,7 @@ def test_state_schema():
 
     annotations = State.__annotations__
 
-    required_fields = ["messages", "retry_count", "issue", "final_report", "input_valid"]
+    required_fields = ["messages", "retry_count", "issue", "final_report", "input_valid", "conversation_summary"]
     for field in required_fields:
         assert field in annotations, f"State missing field: {field}"
 
@@ -96,6 +96,7 @@ async def test_full_conversation_flow_simulation():
         "issue": "",
         "final_report": "",
         "input_valid": True,
+        "conversation_summary": "",
     }
 
     # Turn 1: User sends first message
