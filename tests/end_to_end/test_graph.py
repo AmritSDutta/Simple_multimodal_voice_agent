@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from langchain_core.messages import HumanMessage
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 from src.flow_agent.graph import graph
 
 

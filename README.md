@@ -12,6 +12,7 @@ Meet your new favorite conversational companion: a LangGraph-based multimodal vo
 - **🔄 Conversation Memory** — Automatic summarization keeps long conversations fresh without losing context.
 - **🔍 Built-in Search** — DuckDuckGo integration means it can fact-check itself. Imagine if humans could do that.
 - **🛡️ Enterprise Security** — Input validation, OpenAI moderation, and PII redaction using Microsoft Presidio.
+- **📊 LLM-as-Judge Evaluations** — Built-in Arize Phoenix evaluations for vision and conversation quality testing.
 - **🎨 Pretty Web Interface** — Streamlit-powered UI that won't hurt your eyes.
 
 ## 🚀 Quick Start
@@ -57,6 +58,10 @@ SARVAM_API_KEY=your_key_here       # For SarvamAI (LLM + Speech)
 # Optional: LangSmith Tracing
 LANGSMITH_API_KEY=your_langsmith_key
 LANGCHAIN_PROJECT=multimodal_voice_agent
+
+# Optional: Arize Phoenix Tracing & Evaluation
+ARIZE_SPACE_ID=your_arize_space_id
+ARIZE_API_KEY=your_arize_api_key
 
 # Optional: Feature Flags
 MODERATION_API_CHECK_REQ=True      # Enable OpenAI moderation API
@@ -274,16 +279,41 @@ pytest tests/unit_tests/test_pii_redaction.py
 pytest -p no:warnings
 ```
 
-**Test Coverage (93 tests total):**
-- **End-to-end tests**: 14 tests
+**Test Coverage (97 tests total):**
+- **End-to-end tests**: 18 tests
   - Graph flow tests (text + multimodal)
   - Summarization trigger and retention logic
   - Media handling and image limiting
+  - Arize Phoenix evaluations (4 tests)
 - **Unit tests**: 79 tests
   - LLM provider selection (14 tests)
   - PII redaction (15 tests)
   - Speech services (45 tests)
   - Multiturn memory (5 tests)
+
+### Evaluations
+
+The project includes LLM-as-judge evaluations using Arize Phoenix for testing vision understanding and conversation quality:
+
+**Vision Evaluation** (`tests/end_to_end/arize_evals/test_vision_eval.py`):
+- Tests multimodal understanding with image inputs
+- Uses `ClassificationEvaluator` with OpenAI GPT-5-nano as judge
+- Scores "correct" (1.0) or "incorrect" (0.0) based on vision accuracy
+
+**Session Evaluations** (`tests/end_to_end/arize_evals/test_session_eval.py`):
+- **Multi-turn correctness**: Evaluates conversation quality across turns
+- **Goal achievement**: Tests if user goals are met by conversation end
+- **Single-turn correctness**: Simple QA evaluation
+- Uses Google GenAI (`gemma-3-27b-it`) or Sarvam-M as judge models
+- Uses Phoenix `llm_classify` with rails for deterministic outputs
+
+Run evaluations:
+```bash
+pytest tests/end_to_end/arize_evals/ -v
+```
+
+**Additional Evaluation Resources:**
+- `langsmith_evaluation_guide.py` - Guide for setting up LangSmith evaluations with custom evaluators for multimodal accuracy, safety, and voice quality
 
 ## 📁 Project Structure
 
@@ -296,7 +326,8 @@ pytest -p no:warnings
 │   │   ├── state.py             # State management (includes conversation_summary)
 │   │   ├── nodes.py             # Processing nodes (reasoning, summarizer)
 │   │   ├── input_validation.py  # Security: vulnerability scanning
-│   │   └── pii_redaction.py     # Privacy: PII redaction
+│   │   ├── pii_redaction.py     # Privacy: PII redaction
+│   │   └── arize_config.py      # Arize Phoenix tracing configuration
 │   ├── llms/
 │   │   └── LangChainChatLLM.py  # Multi-provider interface with summarization support
 │   ├── speech/
@@ -310,7 +341,9 @@ pytest -p no:warnings
 │   └── app.py                   # Streamlit web interface
 ├── tests/
 │   ├── unit_tests/              # 79 unit tests
-│   ├── end_to_end/              # 14 end-to-end tests
+│   ├── end_to_end/
+│   │   ├── arize_evals/         # LLM-as-judge evaluations (4 tests)
+│   │   └── ...                  # Other end-to-end tests
 │   └── conftest.py              # Test fixtures
 ├── langgraph.json               # LangGraph configuration
 ├── .env.example                 # Environment variable template

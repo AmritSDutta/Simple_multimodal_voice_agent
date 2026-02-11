@@ -3,10 +3,10 @@ import os
 
 import pandas as pd
 import pytest
-from phoenix.evals import OpenAIModel, llm_classify, LiteLLMModel, GoogleGenAIModel
+from phoenix.evals import OpenAIModel, llm_classify, GoogleGenAIModel
 from langchain_core.messages import HumanMessage
 
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 from src.flow_agent.graph import graph
 
 # ---- Session Evaluation Prompts ----

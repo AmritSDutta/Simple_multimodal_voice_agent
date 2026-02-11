@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 import pytest
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 from src.flow_agent.llms.LangChainChatLLM import _get_random_provider, _get_random_summarizing_provider
 
 

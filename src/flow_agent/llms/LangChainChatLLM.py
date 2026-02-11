@@ -11,7 +11,7 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from sarvam import SarvamChat
 
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 
 random.seed(1234)
 

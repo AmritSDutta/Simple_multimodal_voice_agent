@@ -7,7 +7,7 @@ from google.genai import types
 from google.genai.chats import AsyncChat
 from google.genai.types import GenerateContentResponse
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import Runnable
 from langgraph.constants import END
 from langgraph.runtime import Runtime
@@ -16,7 +16,7 @@ from langgraph_api.schema import Context
 
 from src.flow_agent.utils.pii_redaction import PII_Redactor
 from src.flow_agent.utils.input_validation import scan_for_vulnerability
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 from src.flow_agent.llms.LangChainChatLLM import get_chat_llm
 from src.flow_agent.llms.genai_agent import get_summarizer_agent
 from src.flow_agent.utils.state import State

@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 
 
 @pytest.mark.asyncio
@@ -74,7 +74,7 @@ async def test_summarization_trigger():
 async def test_summarization_retains_images():
     """Test that the summarizer node correctly handles message retention logic."""
     # Test the summarizer node directly without full graph execution
-    from src.flow_agent.utils.nodes import call_langchain_summarizer, _get_retained_messages
+    from src.flow_agent.utils.nodes import _get_retained_messages
     from unittest.mock import MagicMock
 
     # Mock runtime with store
@@ -313,7 +313,7 @@ async def test_summarization_limits_images():
         _extract_all_messages_by_type,
         _has_media_type
     )
-    from src.flow_agent.config import settings
+    from flow_agent.configurations.config import settings
 
     fake_image_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
 

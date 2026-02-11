@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch
 
 from langchain_core.messages import HumanMessage
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 from src.flow_agent.utils.pii_redaction import PII_Redactor
 
 

@@ -6,7 +6,7 @@ SpeechService implementations based on configuration.
 
 import logging
 
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 from src.flow_agent.speech.interface import SpeechService
 from src.flow_agent.speech.providers.gen_ai import GenAiSpeechService
 from src.flow_agent.speech.providers.open_ai import OpenAiSpeechService

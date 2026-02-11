@@ -6,7 +6,7 @@ from langchain_core.messages import BaseMessage
 from presidio_analyzer import AnalyzerEngine, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 
 
 class PII_Redactor:

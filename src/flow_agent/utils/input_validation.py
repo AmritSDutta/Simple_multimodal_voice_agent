@@ -4,7 +4,7 @@ import re
 from langchain_core.messages import BaseMessage, HumanMessage
 from openai.types import ModerationCreateResponse
 
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 
 # Patterns for potentially malicious content
 MALICIOUS_PATTERNS = {

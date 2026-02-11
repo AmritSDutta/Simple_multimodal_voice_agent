@@ -1,4 +1,4 @@
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 
 
 def configure_arize():

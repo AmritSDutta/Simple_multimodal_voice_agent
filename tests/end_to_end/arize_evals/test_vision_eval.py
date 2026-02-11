@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage
 from phoenix.evals import ClassificationEvaluator
 from phoenix.evals.llm import LLM
 
-from src.flow_agent.config import settings
+from src.flow_agent.configurations.config import settings
 from src.flow_agent.graph import graph
 
 judge_llm = LLM(provider="openai", model="gpt-5-nano")

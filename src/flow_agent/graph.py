@@ -6,9 +6,9 @@ from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 
-from src.flow_agent.utils.arize_config import configure_arize
-from src.flow_agent.config import settings
-from src.flow_agent.logging_config import setup_logging
+from src.flow_agent.configurations.arize_config import configure_arize
+from src.flow_agent.configurations.config import settings
+from src.flow_agent.configurations.logging_config import setup_logging
 from src.flow_agent.utils.nodes import (
     entry_node,
     call_gemini_reasoning_model,
