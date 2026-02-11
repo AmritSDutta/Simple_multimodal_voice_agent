@@ -562,7 +562,7 @@ class TestSpeechServiceFactoryWithSettings:
     def test_uses_openai_settings_defaults(self):
         """Factory should use settings for OpenAI defaults."""
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-            from flow_agent.configurations.config import settings
+            from src.flow_agent.configurations.config import settings
 
             import asyncio
 
@@ -599,7 +599,7 @@ class TestSpeechServiceFactoryWithSettings:
     def test_uses_genai_settings_defaults(self):
         """Factory should use settings for GenAI defaults."""
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}):
-            from flow_agent.configurations.config import settings
+            from src.flow_agent.configurations.config import settings
 
             import asyncio
 

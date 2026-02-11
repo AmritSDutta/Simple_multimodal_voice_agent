@@ -50,3 +50,20 @@ def custom_settings():
     # Restore original environment after test
     os.environ.clear()
     os.environ.update(original_env)
+
+
+@pytest.fixture
+def custom_settings_with_gemma_3_12b():
+    from src.flow_agent.configurations.config import settings
+    return settings.model_copy(update={
+        "MAX_TRY": 1,
+        "SLEEP_IN_SECONDS": 0,
+        "VISION_PROVIDER_DISTRIBUTION": {
+            "gemini": 1.0,
+            "openai": 0.0,
+            "zhipu": 0.0,
+            "ollama": 0.0,
+        },
+        "FALLBACK_PROVIDER_IDENTIFIER": "gemini",
+        "GEMINI_VISION_MODEL": "gemma-3-12b-it",
+    })

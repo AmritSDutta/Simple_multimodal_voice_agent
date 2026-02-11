@@ -279,17 +279,19 @@ pytest tests/unit_tests/test_pii_redaction.py
 pytest -p no:warnings
 ```
 
-**Test Coverage (97 tests total):**
-- **End-to-end tests**: 18 tests
+**Test Coverage (101 tests total):**
+- **End-to-end tests**: 20 tests
   - Graph flow tests (text + multimodal)
-  - Summarization trigger and retention logic
+  - Summarization trigger and retention logic (10 tests)
   - Media handling and image limiting
+  - Speech services (3 tests)
+  - Multiturn memory (5 tests)
   - Arize Phoenix evaluations (4 tests)
-- **Unit tests**: 79 tests
+- **Unit tests**: 81 tests
   - LLM provider selection (14 tests)
   - PII redaction (15 tests)
-  - Speech services (45 tests)
-  - Multiturn memory (5 tests)
+  - Speech services (51 tests)
+  - Circuit breaker (1 test)
 
 ### Evaluations
 
@@ -323,11 +325,12 @@ pytest tests/end_to_end/arize_evals/ -v
 │   ├── graph.py                 # LangGraph definition
 │   ├── config.py                # Pydantic settings
 │   ├── utils/
-│   │   ├── state.py             # State management (includes conversation_summary)
-│   │   ├── nodes.py             # Processing nodes (reasoning, summarizer)
-│   │   ├── input_validation.py  # Security: vulnerability scanning
-│   │   ├── pii_redaction.py     # Privacy: PII redaction
-│   │   └── arize_config.py      # Arize Phoenix tracing configuration
+│   │   ├── state.py                # State management (includes conversation_summary)
+│   │   ├── nodes.py                # Processing nodes (reasoning, summarizer)
+│   │   ├── input_validation.py     # Security: vulnerability scanning
+│   │   ├── pii_redaction.py        # Privacy: PII redaction
+│   │   ├── circuit_breaker_llm.py  # Circuit breaker with retry logic
+│   │   └── arize_config.py         # Arize Phoenix tracing configuration
 │   ├── llms/
 │   │   └── LangChainChatLLM.py  # Multi-provider interface with summarization support
 │   ├── speech/

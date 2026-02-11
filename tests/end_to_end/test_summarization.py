@@ -313,7 +313,7 @@ async def test_summarization_limits_images():
         _extract_all_messages_by_type,
         _has_media_type
     )
-    from flow_agent.configurations.config import settings
+    from src.flow_agent.configurations.config import settings
 
     fake_image_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
 

@@ -85,8 +85,7 @@ async def get_vision_models(provider: str | None) -> tuple[BaseChatModel | None,
                 "timeout": 60.0,  # Timeout in seconds
             },
         )
-    if provider not in ['gemini', 'zhipu']:
-        return llm.bind_tools([DuckDuckGoSearchRun()]), provider
+
     return llm, provider
 
 
@@ -123,7 +122,4 @@ async def get_summarization_models(provider: str | None) -> tuple[BaseChatModel 
                 "timeout": 60.0,  # Timeout in seconds
             },
         )
-    if provider not in [settings.GEMINI_PROVIDER_IDENTIFIER, settings.ZHIPU_PROVIDER_IDENTIFIER,
-                        settings.SARVAM_PROVIDER_IDENTIFIER]:
-        return llm.bind_tools([DuckDuckGoSearchRun()]), provider
     return llm, provider

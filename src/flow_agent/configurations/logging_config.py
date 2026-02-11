@@ -46,6 +46,11 @@ def setup_logging():
     )
     logging.getLogger("httpx").setLevel(logging.DEBUG)
     logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)
+
+    logging.getLogger("ddgs").setLevel(logging.CRITICAL)
+    logging.getLogger("ddgs.ddgs").setLevel(logging.CRITICAL)
+    logging.getLogger("duckduckgo_search").setLevel(logging.CRITICAL)
+    logging.getLogger("langchain_community.utilities.duckduckgo_search").setLevel(logging.CRITICAL)
     # 4. Silence noisy libraries
     noisy = [
         "uvicorn",

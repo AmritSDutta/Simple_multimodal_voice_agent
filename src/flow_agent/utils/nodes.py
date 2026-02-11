@@ -1,11 +1,12 @@
 import base64
 import logging
-from asyncio import sleep
+from datetime import datetime
 from typing import List, Any, Sequence, Tuple
 
 from google.genai import types
 from google.genai.chats import AsyncChat
 from google.genai.types import GenerateContentResponse
+from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import Runnable
@@ -14,12 +15,25 @@ from langgraph.runtime import Runtime
 from langgraph.types import Overwrite
 from langgraph_api.schema import Context
 
+from src.flow_agent.utils.circuit_breaker_llm import call_llm_safely
 from src.flow_agent.utils.pii_redaction import PII_Redactor
 from src.flow_agent.utils.input_validation import scan_for_vulnerability
 from src.flow_agent.configurations.config import settings
 from src.flow_agent.llms.LangChainChatLLM import get_chat_llm
 from src.flow_agent.llms.genai_agent import get_summarizer_agent
 from src.flow_agent.utils.state import State
+
+_tool = DuckDuckGoSearchResults(output_format="string", num_results=5)
+sys_prompt = (
+    "Analyze this input and respond in succinct, concise English."
+    "Include references at the end"
+    f"As of date: {datetime.now().isoformat(timespec='seconds')}."
+)
+web_search_result_refix = f"""
+
+        web search result for reference:
+       {{SEARCH_RESULTS}}
+    """
 
 """
     # 1. Extract the specific HumanMessage containing the multimodal data
@@ -83,7 +97,7 @@ async def call_langchain_reasoning_model(
     messages = state.get("messages")
     human_msg = messages[-1]
     content = human_msg.content
-    text_prompt = "Analyze this input."
+    text_prompt = ''
     media_b64s = []  # List of base64 strings for images
     mime_type: str | None = None
 
@@ -91,7 +105,7 @@ async def call_langchain_reasoning_model(
     if isinstance(content, list):
         for item in content:
             if hasattr(item, 'get') and item.get("type") == "text":
-                text_prompt = item.get("text", "hi")
+                text_prompt = item.get("text", "")
             elif hasattr(item, 'get') and item.get("type") in ["image", "audio", "video"]:
                 data = item.get("data")
                 if data:
@@ -99,9 +113,11 @@ async def call_langchain_reasoning_model(
                     mime_type = item.get("mime_type")
                     logging.info(f"Media: {mime_type}")
 
+    enhanced_prompt = sys_prompt + await _enhance_with_tool_search(text_prompt, mime_type)
+
     # Initialize ChatOpenAI with vision model
     llm: BaseChatModel | Runnable = await get_chat_llm()
-    msg_content: Sequence[dict | str] = await prepare_llm_input(text_prompt, media_b64s)
+    msg_content: Sequence[dict | str] = await prepare_llm_input(enhanced_prompt, media_b64s)
     '''
     message_content = [{"type": "text", "text": text_prompt}]
     # Add images to content array
@@ -141,41 +157,6 @@ async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> l
                 }
             )
     return message_content
-
-
-async def call_llm_safely(
-        llm: BaseChatModel | Runnable,
-        conversation: List[BaseMessage],
-        new_message: HumanMessage
-) -> Any:
-    """
-    A trivial circuit breaker with exponential backoff.
-    Receives full conversation history for multi-turn context.
-    """
-    sleep_time = settings.SLEEP_IN_SECONDS
-    response = None
-    full_context = conversation + [new_message]
-    for i in range(settings.MAX_TRY):
-        try:
-            response = await llm.ainvoke(full_context)
-            logging.info(f"response metadata: {response.response_metadata}")
-            logging.info(f"usage metadata: {response.usage_metadata}")
-            return response
-        except Exception as e:
-            logging.warning(f"Attempt {i + 1} failed: {e}")
-            await sleep(sleep_time)
-            sleep_time *= 2
-            if i == settings.MAX_TRY - 1:
-                logging.error(f"Attempt exhausted: {e}, trying alternative")
-                try:
-                    llm = await get_chat_llm(settings.FALLBACK_PROVIDER_IDENTIFIER)
-                    response = await llm.ainvoke(full_context)
-                    return response
-                except Exception as ae:
-                    logging.error(f"trying alternative failed too: {ae}")
-                    raise ae
-
-    return response
 
 
 async def process_response(state: State, response: AIMessage, user_input: str = "") -> State:
@@ -345,7 +326,8 @@ async def call_langchain_summarizer(state: State, runtime: Runtime[Context]) -> 
         new_messages.append(summary_message)
     new_messages.extend(retained_messages)
 
-    logging.info(f"Summarization complete: Kept {len(image_messages_to_keep)}/{len(_extract_all_messages_by_type(combined_messages, 'image'))} images (max={settings.MAX_IMAGES_PER_REQUEST})")
+    logging.info(
+        f"Summarization complete: Kept {len(image_messages_to_keep)}/{len(_extract_all_messages_by_type(combined_messages, 'image'))} images (max={settings.MAX_IMAGES_PER_REQUEST})")
 
     # Use Overwrite to replace the entire messages list
     return {
@@ -440,9 +422,9 @@ def _extract_all_messages_by_type(messages: list[BaseMessage], media_type: str) 
 
 
 def _filter_recent_messages_by_type(
-    messages: list[BaseMessage],
-    message_type: str,
-    max_count: int
+        messages: list[BaseMessage],
+        message_type: str,
+        max_count: int
 ) -> list[BaseMessage]:
     """
     Filter messages to keep only the most recent N messages of a specific type.
@@ -462,3 +444,17 @@ def _filter_recent_messages_by_type(
     recent_messages = typed_messages[-max_count:] if len(typed_messages) > max_count else typed_messages
 
     return recent_messages
+
+
+async def _enhance_with_tool_search(searchable_text: str, mime_type: str | None = None) -> str:
+    if searchable_text is None:
+        return ''
+    if mime_type:
+        # no search result required
+        logging.info(f"Image search, skipping vanilla web search")
+        return searchable_text
+    try:
+        tool_search_results = await _tool.ainvoke(searchable_text)
+        return searchable_text + web_search_result_refix.format(SEARCH_RESULTS=tool_search_results)
+    except Exception as e:
+        return searchable_text

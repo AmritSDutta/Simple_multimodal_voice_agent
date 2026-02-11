@@ -14,7 +14,7 @@ async def test_graph_flow_text_only():
         {
             # initial State fields go here
             "messages": [
-                HumanMessage(content='why sku is blue in 10 words'),
+                HumanMessage(content='why sky is blue in 10 words'),
             ]
         },
         config={

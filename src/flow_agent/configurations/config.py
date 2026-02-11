@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     IS_PII_REDACTION_ENABLED: bool = False
 
     # Summarization Settings
-    SUMMARY_MESSAGE_THRESHOLD: int = 4  # Trigger after N messages
+    SUMMARY_MESSAGE_THRESHOLD: int = 10  # Trigger after N messages
     SUMMARY_PROVIDER_PREFERENCE: str = 'langchain'  # 'langchain' or 'genai'
 
 
