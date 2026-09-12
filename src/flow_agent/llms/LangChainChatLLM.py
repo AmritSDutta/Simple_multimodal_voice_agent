@@ -9,6 +9,7 @@ from langchain_core.runnables import Runnable
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+from langchain_mistralai import ChatMistralAI
 from sarvam import SarvamChat
 
 from src.flow_agent.configurations.config import settings
@@ -109,6 +110,11 @@ async def get_summarization_models(provider: str | None) -> tuple[BaseChatModel 
         )
     elif provider.lower() == settings.SARVAM_PROVIDER_IDENTIFIER:
         llm = SarvamChat(reasoning_effort='low')
+    elif provider.lower() == settings.MISTRAL_PROVIDER_IDENTIFIER:
+
+        llm = ChatMistralAI(  # type: ignore
+            model=settings.MISTRAL_SUMMARIZATION_MODEL,
+        )
     else:
         api_key = os.getenv(settings.OLLAMA_KEY_STRING)
         if api_key is None:

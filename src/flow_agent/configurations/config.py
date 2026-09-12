@@ -16,19 +16,21 @@ class Settings(BaseSettings):
     SLEEP_IN_SECONDS: int = 1
 
     # MODEL choices
-    GEMINI_VISION_MODEL: str = 'gemma-3-27b-it'
+    GEMINI_VISION_MODEL: str = 'gemini-2.5-flash-lite' #'gemma-3-27b-it'
     OPENAI_VISION_MODEL: str = 'gpt-5-nano'
     ZHIPU_VISION_MODEL: str = 'GLM-4.6V-Flash'
     ZHIPU_SUMMARIZATION_MODEL: str = 'GLM-4.7-Flash'
     OLLAMA_VISION_MODEL: str = 'qwen3-vl:235b-instruct-cloud'
     OLLAMA_SUMMARIZATION_MODEL: str = 'nemotron-3-nano:30b-cloud'
+    MISTRAL_SUMMARIZATION_MODEL: str = 'mistral-medium-2508'
 
     GEMINI_PROVIDER_IDENTIFIER: str = 'gemini'
     OPENAI_PROVIDER_IDENTIFIER: str = 'openai'
     ZHIPU_PROVIDER_IDENTIFIER: str = 'zhipu'
     OLLAMA_PROVIDER_IDENTIFIER: str = 'ollama'
-    FALLBACK_PROVIDER_IDENTIFIER: str = 'openai'
+    FALLBACK_PROVIDER_IDENTIFIER: str = 'gemini'
     SARVAM_PROVIDER_IDENTIFIER: str = 'sarvam'
+    MISTRAL_PROVIDER_IDENTIFIER: str = 'mistral'
 
     VISION_PROVIDER_DISTRIBUTION: dict = {
         GEMINI_PROVIDER_IDENTIFIER: 0.7,
@@ -42,8 +44,9 @@ class Settings(BaseSettings):
     ZHIPU_KEY_STRING: str = "ZAI_API_KEY"
 
     SUMMARIZATION_PROVIDER_DISTRIBUTION: dict = {
-        OLLAMA_PROVIDER_IDENTIFIER: 0.5,
-        SARVAM_PROVIDER_IDENTIFIER: 0.3,
+        MISTRAL_PROVIDER_IDENTIFIER: 0.59,
+        OLLAMA_PROVIDER_IDENTIFIER: 0.01,
+        SARVAM_PROVIDER_IDENTIFIER: 0.2,
         GEMINI_PROVIDER_IDENTIFIER: 0.1,
         ZHIPU_PROVIDER_IDENTIFIER: 0.09,
         OPENAI_PROVIDER_IDENTIFIER: 0.01,
@@ -86,6 +89,7 @@ class Settings(BaseSettings):
     MAX_IMAGES_PER_REQUEST: int = 2
     PII_CONFIDENCE_THRESHOLD: float = 0.5
     IS_PII_REDACTION_ENABLED: bool = False
+    IS_INPUT_VALIDATION_ENABLED: bool = False
 
     # Summarization Settings
     SUMMARY_MESSAGE_THRESHOLD: int = 10  # Trigger after N messages

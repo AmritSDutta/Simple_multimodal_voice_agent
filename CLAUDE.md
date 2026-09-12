@@ -7,16 +7,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a LangGraph-based multimodal voice agent template built with Python. The project implements a reasoning agent that can process both text and multimodal inputs (images, audio, video) using various LLM providers including Google Gemini, OpenAI, Zhipu (Zai), SarvamAI, and Ollama. The agent features a Streamlit web interface for user interaction and supports both development and production deployment.
 
 **Key Security Features:**
-- Multi-layer input validation with regex pattern matching
+- Multi-layer input validation with regex pattern matching (100+ attack vectors)
 - OpenAI moderation API integration for text and image content
-- PII redaction using Microsoft Presidio (enabled in entry node)
-- Enterprise-grade security with comprehensive threat detection
+- PII redaction using Microsoft Presidio (disabled by default, enable via `IS_PII_REDACTION_ENABLED=True`)
+- Enterprise-grade security with defense-in-depth architecture
 
 **Key Features:**
 - Automatic conversation summarization after configurable message threshold
-- Multi-provider weighted distribution for cost optimization
+- Multi-provider weighted distribution for cost optimization and load balancing
 - Factory pattern for speech services (SarvamAI, OpenAI, Google GenAI)
 - LangSmith and Arize Phoenix tracing support
+- LLM-as-judge evaluations using Arize Phoenix for vision and conversation quality
 
 ## Configuration
 
@@ -94,6 +95,47 @@ pip install -e .
 python -m spacy download en_core_web_sm
 ```
 
+### Running the Agent
+
+**Development Mode (with hot-reload):**
+```bash
+# Start LangGraph with Docker Compose (Postgres + Redis included)
+# Automatically builds, starts services, and watches for code changes
+langgraph up --watch
+```
+
+The `langgraph up` command:
+- Creates a Docker Compose setup with Postgres (state storage) and Redis (caching)
+- Builds and starts all services
+- `--watch` enables hot-reload for rapid development
+- Exposes the API at `http://localhost:8123` by default (or port 2024 if `DEPLOYMENT_URL` in `ui/app.py` is changed)
+
+**Production Build:**
+```bash
+# Build for production (without watch mode)
+langgraph build
+```
+
+**Starting the Streamlit UI (separate terminal):**
+```bash
+streamlit run ui/app.py
+```
+
+**Access Points:**
+- LangGraph API: http://localhost:8123
+- API Docs: http://localhost:8123/docs
+- Streamlit UI: http://localhost:8501
+```bash
+# Install dependencies
+uv sync
+
+# Or with pip
+pip install -e .
+
+# Download Spacy English model (required for PII redaction)
+python -m spacy download en_core_web_sm
+```
+
 ### Code Quality
 ```bash
 # Run linting
@@ -127,6 +169,18 @@ The `langgraph up` command:
 langgraph build
 ```
 
+### Code Quality
+```bash
+# Run linting
+ruff check .
+
+# Auto-fix lint issues
+ruff check --fix .
+
+# Type checking
+mypy src/
+```
+
 ### Testing
 ```bash
 # Run all tests
@@ -147,23 +201,31 @@ pytest -p no:warnings
   - `resources_path` fixture - Path to test resources directory
   - `image_to_base64_fixture` - Helper for encoding test images
   - `custom_settings` fixture - Override settings via environment variables during tests
+  - `custom_settings_with_gemma_3_12b` - Pre-configured settings for faster tests (gemini-only, low retry)
 - `tests/unit_tests/` - Unit test directory (79 tests)
   - LLM provider selection (14 tests)
   - PII redaction (15 tests)
   - Speech services (45 tests)
+  - Circuit breaker (1 test)
   - Multiturn memory (5 tests)
 - `tests/end_to_end/` - End-to-end test directory (18 tests)
-  - `arize_evals/` - LLM-as-judge evaluations using Arize Phoenix
+  - `arize_evals/` - LLM-as-judge evaluations using Arize Phoenix (4 tests)
   - Graph flow tests
-  - Summarization trigger and retention logic
+  - Summarization trigger and retention logic (10 tests)
   - Media handling and image limiting
-  - Arize Phoenix evaluations (4 tests)
+  - Speech services (3 tests)
 
 **Test Fixtures Usage:**
 ```python
+# Using custom_settings to override environment variables
 async def test_something(custom_settings):
     custom_settings.set("REASONING_NODE_PREFERENCE", "genai")
     # ... test code using the custom setting
+
+# Using pre-configured settings for faster tests
+async def test_with_gemini(custom_settings_with_gemma_3_12b):
+    # Settings: gemini-only, MAX_TRY=1, SLEEP_IN_SECONDS=0
+    # ... test code
 ```
 
 ### LLM-as-Judge Evaluations (Arize Phoenix)
@@ -230,7 +292,7 @@ Explanation: The agent successfully explained the difference between list and tu
 ### Graph Structure (`src/flow_agent/graph.py`)
 The agent is defined as a LangGraph StateGraph with the following nodes:
 
-- **entry**: Entry node that performs PII redaction and initializes conversation summary
+- **entry**: Entry node that performs PII redaction on the latest message and initializes conversation summary
 - **input_validator**: Security node that scans for malicious content and runs moderation checks
 - **reasoning**: Main reasoning node that calls the LLM via LangChain interface (or native GenAI SDK)
 - **summarizer**: Optional node that summarizes older messages when conversation grows long
@@ -244,6 +306,8 @@ START → entry → input_validator → conditional edge → reasoning → condi
 
 The first conditional edge (`route_after_validation`) checks the `input_valid` flag to route to reasoning or END.
 The second conditional edge (`should_summarize`) checks the message count to optionally route to summarizer.
+
+**Important:** The graph is compiled at module import time, so node selection happens when `graph.py` is imported, not at runtime. This is why settings must be patched in multiple places during tests.
 
 ### State Management (`src/flow_agent/utils/state.py`)
 The `State` TypedDict contains:
@@ -298,20 +362,24 @@ The agent maintains conversation history with automatic summarization:
 The project supports multiple LLM providers through two interfaces:
 
 #### 1. LangChain Interface (`src/flow_agent/llms/LangChainChatLLM.py`)
-Unified interface supporting multiple providers via `get_chat_llm(provider, use_for_summarization=False)`:
+Unified interface supporting multiple providers via `get_chat_llm(provider, is_summarizer=False)`:
 
 | Provider | Vision Model | Summarization Model | Notes |
 |----------|-------------|---------------------|-------|
 | `gemini` | `gemma-3-27b-it` | (same) | Via ChatGoogleGenerativeAI |
 | `ollama` | `qwen3-vl:235b-instruct-cloud` | `nemotron-3-nano:30b-cloud` | Vision-capable, remote server at https://ollama.com |
-| `zhipu` / `zai` | `GLM-4.6V-Flash` | `GLM-4.7-Flash` | Vision-capable, requires `ZAI_API_KEY` |
-| `sarvam` | (not vision-capable) | `sarvam-1` | SarvamAI LLM integration |
+| `zhipu` / `zai` | `GLM-4.6V-Flash` | `GLM-4.7-Flash` | Vision-capable, uses OpenAI-compatible API at `ZHIPU_BASE_URL` |
+| `sarvam` | (not vision-capable) | `sarvam-1` | SarvamAI LLM integration (summarization only) |
 | `openai` | `gpt-5-nano` | (same) | Standard OpenAI model |
 
 **Provider Selection:**
 - If `provider` is `None`, uses weighted random distribution via `_get_random_provider()`
 - Distribution weights differ for vision vs summarization (see `VISION_PROVIDER_DISTRIBUTION` and `SUMMARIZATION_PROVIDER_DISTRIBUTION`)
 - DuckDuckGo search tool is bound for all providers except `gemini` and `zhipu`
+
+**Important:** When adding new providers or models, update both:
+- `pyproject.toml` - for local development
+- `langgraph.json` - for Docker deployment (critical!)
 
 #### 2. Native Google GenAI (`src/flow_agent/llms/genai_agent.py`)
 - Uses Google GenAI SDK with `AsyncClient` and `AsyncChat`
@@ -579,26 +647,30 @@ The agent implements defense-in-depth with three security layers:
    - Pattern-based detection for 100+ attack vectors
    - Compiled regex patterns for performance
    - Categories: shell injection, docker abuse, SQL injection, path traversal, system commands, code execution, Windows abuse
+   - **Returns `False` for malicious content** - blocks before reaching LLM
 
 2. **Moderation API** (OpenAI `omni-moderation-latest`):
-   - Configurable via `settings.MODERATION_API_CHECK_REQ`
+   - Configurable via `settings.MODERATION_API_CHECK_REQ` (default: `True`)
    - Processes both text and images
    - Returns flagged categories for compliance logging
+   - **Also blocks malicious content** before LLM processing
 
 3. **PII Redaction** (Microsoft Presidio):
-   - Enabled in entry_node by default (configurable via `IS_PII_REDACTION_ENABLED`)
+   - Disabled by default (`IS_PII_REDACTION_ENABLED=False`)
+   - When enabled, runs in `entry_node` on the latest message
    - Detects emails, phone numbers, SSN, credit cards, URLs, IP addresses, etc.
-   - Configurable confidence threshold
+   - **Non-destructive** - creates message copies before redacting
+   - Configurable confidence threshold (default: 0.5)
 
 ### Provider Selection
 Provider selection is controlled in two ways:
 
 1. **Automatic**: Set `provider=None` in `get_chat_llm()` to use weighted random distribution
-   - Use `VISION_PROVIDER_DISTRIBUTION` for vision/reasoning tasks
-   - Use `SUMMARIZATION_PROVIDER_DISTRIBUTION` for summarization tasks
+   - Uses `VISION_PROVIDER_DISTRIBUTION` for vision/reasoning tasks
+   - Uses `SUMMARIZATION_PROVIDER_DISTRIBUTION` for summarization tasks
 
 2. **Explicit**: Pass a specific provider string to `get_chat_llm(provider)`:
-   - `'ollama'`, `'openai'`, `'gemini'`, `'sarvam'`, `'zhipu'`, or `'zai'`
+   - Supported: `'ollama'`, `'openai'`, `'gemini'`, `'sarvam'`, `'zhipu'`, or `'zai'`
 
 ### Node Selection
 The graph selects nodes based on settings:
@@ -611,24 +683,13 @@ The graph selects nodes based on settings:
 - `'langchain'` (default) - Uses `call_langchain_summarizer`
 - `'genai'` - Not currently implemented in graph
 
-**Important gotcha**: When testing different nodes, you must patch settings in multiple places because the graph is compiled at import time:
-```python
-# In tests, patch both modules
-with patch("src.flow_agent.graph.settings", custom_settings), \
-     patch("src.flow_agent.utils.nodes.settings", custom_settings):
-    # ... test code
-```
-
-To change the node for development, edit `src/flow_agent/config.py`:
-```python
-REASONING_NODE_PREFERENCE: str = 'genai'  # or 'langchain'
-```
-
 ### Circuit Breaker Behavior
-The `call_llm_safely` function implements:
-1. Up to `MAX_TRY` retry attempts with exponential backoff
-2. Falls back to `settings.FALLBACK_PROVIDER_IDENTIFIER` (default: `'openai'`) on final failure
-3. Doubles sleep time between retries
+The `call_llm_safely` function (`src/flow_agent/utils/circuit_breaker_llm.py`) implements:
+1. Circuit breaker using `aiobreaker` (opens after 5 failures in 30 seconds)
+2. Tenacity retry with up to `MAX_TRY` (default: 3) attempts
+3. Exponential backoff (1s → 2s → 4s...)
+4. Falls back to `settings.FALLBACK_PROVIDER_IDENTIFIER` (default: `'openai'`) on final failure
+5. **Only retries on non-circuit-breaker errors** - CircuitBreakerError propagates immediately
 
 ### Debug Mode
 The UI includes debug expanders that show raw JSON:
@@ -638,18 +699,64 @@ with st.expander("🔍 Debug: Raw final_report"):
 ```
 This is invaluable for debugging but exposes internal state structure.
 
+### Multimodal Content Handling
+
+**Expected Structure:**
+```python
+HumanMessage(content=[
+    {'type': 'text', 'text': 'what is there in the image'},
+    {
+        'type': 'image',
+        'data': 'iVBORw0KGgoAAAANS...',  # base64 encoded
+        'metadata': {'filename': 'example.png'},
+        'source_type': 'base64',
+        'mime_type': 'image/png'
+    }
+])
+```
+
+**Content Extraction Logic:**
+- Text extracted from `content[i]['type'] == 'text'`
+- Media extracted from `content[i]['type'] in ['image', 'audio', 'video']`
+- Supports up to `MAX_IMAGES_PER_REQUEST` images (default: 2)
+- Converts base64 data for LLM consumption
+- Handles both string and list content formats for backward compatibility
+
+**Note on Audio Processing:**
+Audio is transcribed to text via SarvamAI STT in the UI before being sent to the graph. The graph receives the transcribed text as part of the human message, not raw audio data.
+
 ### Graph Modification Notes
+
+**Testing Different Nodes:**
+The graph selects reasoning/summarizer nodes at compile time based on settings. When testing, you must patch settings in multiple places because the graph is compiled at import time:
+
+```python
+from unittest.mock import patch
+
+# Patch all three modules that import settings
+with patch("src.flow_agent.graph.settings", custom_settings), \
+     patch("src.flow_agent.utils.nodes.settings", custom_settings), \
+     patch("src.flow_agent.llms.LangChainChatLLM.settings", custom_settings):
+    # ... test code
+```
+
+**Changing Node for Development:**
+Edit `src/flow_agent/configurations/config.py`:
+```python
+REASONING_NODE_PREFERENCE: str = 'genai'  # or 'langchain'
+SUMMARY_PROVIDER_PREFERENCE: str = 'langchain'  # or 'genai'
+```
 
 **Disabling PII Redaction:**
 Set in `.env` or environment:
 ```bash
-IS_PII_REDACTION_ENABLED=False
+IS_PII_REDACTION_ENABLED=False  # Default is False
 ```
 
 **Disabling Moderation API:**
 Set in `.env` or environment:
 ```bash
-MODERATION_API_CHECK_REQ=False
+MODERATION_API_CHECK_REQ=False  # Default is True
 ```
 
 **Custom Moderation Model:**
@@ -660,5 +767,150 @@ MODERATION_MODEL=omni-moderation-latest  # Text + Image (default)
 
 **Adjusting Summarization Threshold:**
 ```bash
-SUMMARY_MESSAGE_THRESHOLD=6  # Summarize after 6 messages instead of 4
+SUMMARY_MESSAGE_THRESHOLD=6  # Summarize after 6 messages (default: 10 in config)
 ```
+
+## Common Development Workflows
+
+### Adding a New LLM Provider
+
+1. **Update `src/flow_agent/configurations/config.py`:**
+   - Add provider identifier constant (e.g., `NEW_PROVIDER_IDENTIFIER: str = 'new_provider'`)
+   - Add model name constants (e.g., `NEW_PROVIDER_VISION_MODEL`)
+   - Update distribution dictionaries if using weighted selection
+
+2. **Update `src/flow_agent/llms/LangChainChatLLM.py`:**
+   - Add import for the provider's LangChain integration
+   - Add conditional in `get_vision_models()` and/or `get_summarization_models()`
+   - Handle API key configuration (add to `.env.example`)
+
+3. **Update BOTH dependency files:**
+   - Add to `pyproject.toml` in `dependencies` array
+   - Add to `langgraph.json` in `dependencies` array (critical for Docker!)
+
+4. **Test the new provider:**
+   - Write unit tests in `tests/unit_tests/test_langchain_llm.py`
+   - Test with `custom_settings.set("PROVIDER_DISTRIBUTION", {"new_provider": 1.0, ...})`
+
+### Adding a New Speech Provider
+
+1. **Create new provider class:**
+   - Inherit from `SpeechService` (`src/flow_agent/speech/interface.py`)
+   - Implement `speech_to_text()` and `text_to_speech()` methods
+   - Save to `src/flow_agent/speech/providers/new_provider.py`
+
+2. **Update factory:**
+   - Import provider class in `src/flow_agent/speech/factory.py`
+   - Add to `_PROVIDERS` registry
+   - Add alias handling in `_normalize_provider_name()`
+
+3. **Update settings:**
+   - Add provider-specific settings to `config.py` (STT model, TTS model, language, speaker, etc.)
+
+4. **Test the implementation:**
+   - Write unit tests in `tests/unit_tests/test_speech_services.py`
+   - Test STT and TTS separately
+
+### Debugging Failed Graph Runs
+
+When a graph run fails in production:
+
+1. **Check the run status:**
+   ```bash
+   # Use the UI's debug expander to see raw final_report
+   # Or check logs: docker logs -f <container_name>
+   ```
+
+2. **Common failure points:**
+   - Input validation failure (malicious content detected)
+   - Circuit breaker open (too many failed LLM calls)
+   - Provider API key missing or invalid
+   - Model name typo in configuration
+   - Network timeout (check `OLLAMA_BASE_URL`, `ZHIPU_BASE_URL`)
+
+3. **Enable detailed logging:**
+   ```bash
+   # Check logs for "Using {provider}" messages
+   # Look for "response metadata" and "usage metadata" in logs
+   ```
+
+### Writing Tests for Graph Nodes
+
+When testing graph nodes that use settings:
+
+```python
+from unittest.mock import patch
+import pytest
+from langchain_core.messages import HumanMessage
+
+@pytest.mark.asyncio
+async def test_my_node(custom_settings):
+    # Override settings for this test
+    custom_settings.set("REASONING_NODE_PREFERENCE", "genai")
+    custom_settings.set("MAX_TRY", 1)  # Fail fast
+
+    # Patch all imports of settings
+    with patch("src.flow_agent.graph.settings", custom_settings), \
+         patch("src.flow_agent.utils.nodes.settings", custom_settings), \
+         patch("src.flow_agent.llms.LangChainChatLLM.settings", custom_settings):
+
+        from src.flow_agent.graph import graph
+        compiled_graph = graph.compile()
+
+        result = await compiled_graph.ainvoke({
+            "messages": [HumanMessage(content="test")]
+        })
+
+        assert result["input_valid"] == True
+```
+
+### Troubleshooting Summarization
+
+If summarization isn't triggering:
+
+1. **Check message count:**
+   - Default threshold is 10 (`SUMMARY_MESSAGE_THRESHOLD`)
+   - Count includes both HumanMessage and AIMessage
+   - Check logs for "Message count (X) >= threshold (Y)"
+
+2. **Verify summarizer is being called:**
+   - Look for "Using {provider}" logs for summarization models
+   - Check `SUMMARY_PROVIDER_PREFERENCE` setting
+
+3. **Image retention logic:**
+   - All human messages are kept
+   - Last 2 AI responses are retained
+   - Up to `MAX_IMAGES_PER_REQUEST` images preserved (default: 2)
+   - Check logs for "Summarization complete: Kept X/Y images"
+
+### Working with Multimodal Content
+
+When building multimodal messages:
+
+```python
+from langchain_core.messages import HumanMessage
+
+# Simple text
+message = HumanMessage(content="Hello")
+
+# Text + image
+message = HumanMessage(content=[
+    {"type": "text", "text": "What's in this image?"},
+    {
+        "type": "image",
+        "data": base64_encoded_data,
+        "metadata": {"filename": "photo.png"},
+        "source_type": "base64",
+        "mime_type": "image/png"
+    }
+])
+
+# The graph will:
+# 1. Run PII redaction on the message (if enabled)
+# 2. Validate input (malicious content check, moderation API)
+# 3. Extract text prompt and media
+# 4. Prepare LLM input with up to MAX_IMAGES_PER_REQUEST images
+# 5. Call LLM with conversation history
+# 6. Return AI response
+```
+

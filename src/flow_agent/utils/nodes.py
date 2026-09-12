@@ -166,6 +166,9 @@ async def process_response(state: State, response: AIMessage, user_input: str = 
     redactor = PII_Redactor(confidence_threshold=0.5)
     final_report: List[BaseMessage] = await redactor.do_pii_redaction([genai_res])
     agent_response: str = final_report[0].content
+    logging.info('*' * 15)
+    logging.info(f'Agent response: {agent_response[:100]}')
+    logging.info('*' * 15)
     return {
         "input_valid": True,
         "retry_count": 0,
@@ -246,6 +249,11 @@ async def call_gemini_reasoning_model(state: State, runtime: Runtime[Context]) -
 
 
 async def call_input_validation(state: State, runtime: Runtime[Context]) -> dict:
+    if not settings.IS_INPUT_VALIDATION_ENABLED:
+        return {
+            "input_valid": True  # Flag for routing
+        }
+
     user_message: list[HumanMessage] = [msg for msg in state.get("messages") if isinstance(msg, HumanMessage)]
 
     is_safe: bool = await scan_for_vulnerability(user_message[-1])
