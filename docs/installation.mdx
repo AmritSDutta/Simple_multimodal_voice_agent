@@ -1,0 +1,77 @@
+---
+title: Installation
+description: Prerequisites, dependency install, the spaCy model required by PII redaction, and environment configuration.
+---
+
+# Installation
+
+## Prerequisites
+
+- **Python 3.10 or newer** (declared as `requires-python = ">=3.10"` in `pyproject.toml`).
+- A package manager: `uv` is used in the docs, but `pip` works identically.
+- API keys for whichever providers you intend to use.
+
+## Install dependencies
+
+```bash
+uv sync
+# or
+pip install -e .
+```
+
+The project installs a mix of LangGraph, LangChain provider integrations, speech SDKs, security libraries, and Streamlit. See [Dependencies](/dependencies) for the full list and important gaps.
+
+## Download the spaCy model
+
+Microsoft Presidio's analyzer requires a spaCy model, and it is **not** installed by `pip install -e .`:
+
+```bash
+python -m spacy download en_core_web_sm
+```
+
+Without this, PII redaction fails at runtime when enabled.
+
+## Configure the environment
+
+Copy the template and fill in the keys you actually use:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Purpose |
+|---|---|
+| `ZAI_API_KEY` | Zhipu / GLM provider |
+| `OLLAMA_API_KEY` | Ollama provider (required whenever Ollama is selected) |
+| `SARVAM_API_KEY` | SarvamAI speech-to-text and text-to-speech |
+| `OPENAI_API_KEY` | OpenAI provider and the moderation API |
+| `GOOGLE_API_KEY` | Gemini provider via LangChain |
+| `GEMINI_API_KEY` | Google models used by the LiveKit agents |
+| `GROQ_API_KEY` | Groq STT and the Groq LLM variants |
+| `TAVILY_API_KEY` | Web search tool in the LiveKit agents |
+| `ARIZE_SPACE_ID`, `ARIZE_API_KEY` | Arize tracing, only when enabled |
+
+Settings are loaded from `.env` with `case_sensitive=True`, so an environment variable must be spelled exactly as the field name (`SARVAM_STT_MODEL`, not `sarvam_stt_model`). Full details are in [Configuration](/configuration).
+
+## Running the agents
+
+The two agents are started independently:
+
+```bash
+# LangGraph agent — backend
+langgraph up --watch
+
+# LangGraph agent — web UI
+streamlit run ui/app.py
+
+# LiveKit voice agent — worker and console client
+python -m src.livekit_context_optimized dev
+python -m src.livekit_context_optimized console
+```
+
+See [Quickstart](/quickstart) for a guided run.
+
+## Notes
+
+- The LiveKit agents require packages that are **not** declared in `pyproject.toml`. Install them separately before using the voice agent — see [Dependencies](/dependencies).
+- `langgraph.json` lists its own dependency set because the Docker build reads that file rather than `pyproject.toml`. Keep the two in sync.

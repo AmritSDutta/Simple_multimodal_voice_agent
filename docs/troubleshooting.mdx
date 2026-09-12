@@ -1,0 +1,60 @@
+---
+title: Troubleshooting
+description: Common failures across the LangGraph agent, the LiveKit voice agent, and the docs preview, with causes and fixes.
+---
+
+# Troubleshooting
+
+## LangGraph agent
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Input returns HTTP 422 | Thread created with an empty body | POST `json={}` to `/threads` |
+| Validation seems to do nothing | `IS_INPUT_VALIDATION_ENABLED` defaults to `False` | Set it to `true` |
+| PII is not redacted | `IS_PII_REDACTION_ENABLED` defaults to `False` | Set it to `true` |
+| Presidio fails to start | spaCy model missing | `python -m spacy download en_core_web_sm` |
+| Ollama raises `ValueError: OLLAMA_API_KEY ... not set` | Ollama is in the random distribution | Set the key, or remove Ollama from the distribution |
+| Fallback always hits Gemini | `FALLBACK_PROVIDER_IDENTIFIER` defaults to `gemini` | Change the setting |
+| All providers fail at once | The circuit breaker is global | Restart, or give each provider its own breaker |
+| Summarization never fires | `SUMMARY_MESSAGE_THRESHOLD` not reached | Lower the threshold or check message growth |
+
+## LiveKit voice agent
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'src'` | Ran the file directly | Use `python -m src.livekit_context_optimized dev` |
+| `ModuleNotFoundError: No module named 'livekit'` | LiveKit packages are not declared | Install `livekit-agents` and the plugins — see [Dependencies](/dependencies) |
+| `ValueError: AgentSession userdata is not set` | Session created without userdata | `AgentSession[AgentUserData](userdata=...)` |
+| Provider error 400, `invalid JSON schema for tool` | A `@function_tool()` with zero parameters | Add a defaulted parameter, e.g. `placeholder: str = ""` |
+| `NameError: Fields must not use names with leading underscores` | Placeholder parameter named `_` | Rename it to a normal identifier |
+| Tool cannot see preferences | Read via `context.session.userdata` | Use `context.userdata` |
+| Summarization latency spike | Summarizing on a slow model | Pass a faster `llm_for_summary` |
+| Facts lost after a long call | Aggressive summarization | Store durable facts in `SpecializedDomainState` |
+
+## Docs preview
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `docs7 dev` exits immediately | No `docs.json` in the docs directory | Add the config file |
+| `colors: This field is required` | `colors` object omitted | Add `primary`, `light`, `dark` |
+| A diagram spins forever | Mermaid strict-mode parse error, silently swallowed | Fix the diagram; quote labels, avoid `<br/>`, `%%`, and blank lines |
+| Diagram text is tiny | Diagram is wider than the prose column, so it is scaled down | Split it into narrower `flowchart TD` diagrams |
+| A page renders nowhere | Not listed in `navigation.groups` | Add its slug to a group |
+
+Mermaid diagrams must be strict-mode safe: quote every label containing spaces or punctuation, never use square brackets inside a subgraph title, avoid `<br/>`, and keep the natural width under roughly 800px so the text stays readable.
+
+## General checks
+
+```bash
+# Imports resolve
+python -c "from src.flow_agent.speech import get_speech_service; print('speech ok')"
+python -c "from src.livekit_context_manager import ContextManager; print('context ok')"
+
+# Environment loaded
+python -c "from src.flow_agent.configurations.config import settings; print(settings.REASONING_NODE_PREFERENCE)"
+
+# Tests
+pytest -q
+```
+
+See [Dependencies](/dependencies) for packages that are imported but not declared.

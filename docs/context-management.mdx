@@ -1,0 +1,133 @@
+---
+title: Context Management
+description: Keeping long voice conversations inside the context window with filtering, proactive summarization, and external state.
+---
+
+# Context Management
+
+A voice session can run for hundreds of turns. `src/livekit_context_manager.py` and `src/specialized_domain_state.py` keep the context from overflowing using three complementary strategies plus an external store.
+
+## The three strategies
+
+1. **Interruption-based truncation** — built into LiveKit, automatic and free.
+2. **Message filtering** — copy the context excluding tool calls, instructions, and config noise.
+3. **Proactive summarization** — periodically compress old history with an LLM.
+
+Plus **external state**, so preferences and facts never enter the chat context at all.
+
+## ContextManager
+
+```python
+class ContextManager:
+    @staticmethod
+    async def get_compacted_context(agent, keep_last_n_turns: int = 10, exclude_system: bool = True) -> llm.ChatContext
+
+    @staticmethod
+    async def summarize_if_needed(agent, threshold_items: int = 20, llm_for_summary: Optional[llm.LLM] = None, keep_last_turns: int = 3) -> llm.ChatContext
+
+    @staticmethod
+    def get_context_stats(agent) -> dict
+```
+
+### Filtering
+
+`get_compacted_context` copies with exclusions, then truncates:
+
+```python
+compacted_ctx = agent.chat_ctx.copy(
+    exclude_function_call=True,
+    exclude_instructions=True,
+    exclude_config_update=True,
+    exclude_handoff=True,
+    exclude_empty_message=True,
+)
+if len(compacted_ctx.items) > keep_last_n_turns:
+    compacted_ctx.truncate(max_items=keep_last_n_turns)
+```
+
+### Summarizing
+
+`summarize_if_needed` is a no-op below threshold; above it, it uses LiveKit's built-in summarizer:
+
+```python
+if current_items <= threshold_items:
+    return agent.chat_ctx
+summary_ctx = await ctx_to_summarize._summarize(llm_v=llm_for_summary, keep_last_turns=keep_last_turns)
+agent._chat_ctx = summary_ctx
+```
+
+If summarization raises, it logs and returns the uncompacted context rather than failing the turn.
+
+### Statistics
+
+`get_context_stats` returns `total_items`, `type_breakdown`, `has_system_messages`, and `has_function_calls`.
+
+## External state
+
+`SpecializedDomainState` is a dataclass storing data outside the conversation:
+
+```python
+state.set_user_preference("language", "en-IN")
+state.get_user_preference("language")
+
+state.add_task_result("analysis", {"rows": 100})
+state.get_task_history("analysis")
+
+state.set_domain_fact("user_level", "advanced")
+state.get_domain_fact("user_level")
+
+state.update_user_profile({"name": "Alice"})
+state.get_session_duration()
+state.get_idle_time()
+state.to_summary()
+```
+
+`to_summary()` produces a short string suitable for logging or a summarization prompt.
+
+## Wiring it into an agent
+
+The optimized agent keeps a turn counter and checks every N turns:
+
+```python
+self._SUMMARIZE_EVERY_N_TURNS   = int(os.getenv("CONTEXT_SUMMARIZE_EVERY_N_TURNS", "5"))
+self._SUMMARIZE_THRESHOLD_ITEMS = int(os.getenv("CONTEXT_SUMMARIZE_THRESHOLD_ITEMS", "10"))
+self._KEEP_LAST_N_TURNS         = int(os.getenv("CONTEXT_KEEP_LAST_N_TURNS", "3"))
+
+async def on_user_turn_ended(self):
+    self._turn_counter += 1
+    if self._turn_counter % self._SUMMARIZE_EVERY_N_TURNS == 0:
+        await ContextManager.summarize_if_needed(
+            agent=self,
+            threshold_items=self._SUMMARIZE_THRESHOLD_ITEMS,
+            keep_last_turns=3,
+        )
+```
+
+## Environment variables
+
+| Variable | Code default | Meaning |
+|---|---|---|
+| `CONTEXT_SUMMARIZE_EVERY_N_TURNS` | `5` | How often to check |
+| `CONTEXT_SUMMARIZE_THRESHOLD_ITEMS` | `10` | Item count that triggers summarization |
+| `CONTEXT_KEEP_LAST_N_TURNS` | `3` | Recent turns kept uncompressed |
+
+Tuning guidance:
+
+- **Short sessions** — raise the threshold and check less often.
+- **Long sessions** — lower the threshold and check more often.
+- **Reduce latency** — pass a faster model as `llm_for_summary`.
+
+```bash
+CONTEXT_SUMMARIZE_THRESHOLD_ITEMS=15 \
+CONTEXT_KEEP_LAST_N_TURNS=8 \
+CONTEXT_SUMMARIZE_EVERY_N_TURNS=10 \
+python -m src.livekit_context_optimized dev
+```
+
+## Pitfalls
+
+- **The code defaults are `5 / 10 / 3`.** Older notes in the repo claim `15 / 20 / 10`.
+- `summarize_if_needed` calls the **private** `ChatContext._summarize`; a LiveKit upgrade could break it.
+- Summarization adds latency on the turn it fires — use a fast model via `llm_for_summary`.
+- Aggressive summarization loses facts. Put durable facts in `SpecializedDomainState` instead of relying on the summary.
+- `on_enter` also runs a summarization check before the first reply, which is harmless but worth knowing when reading logs.

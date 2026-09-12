@@ -1,0 +1,105 @@
+---
+title: Streamlit UI
+description: The two Streamlit front ends, how they talk to the LangGraph server over REST, and how they handle speech.
+---
+
+# Streamlit UI
+
+There are two front ends for the LangGraph agent. They are nearly identical; the difference is how they access speech services.
+
+| File | Speech | Notes |
+|---|---|---|
+| `ui/app.py` | Inlines SarvamAI STT/TTS directly | Original, self-contained |
+| `ui/app_v2.py` | Uses `src.flow_agent.speech` | Refactored, provider-agnostic |
+
+## Connecting to the backend
+
+Both hardcode the target and assistant:
+
+```python
+DEPLOYMENT_URL = "http://localhost:2024"
+ASSISTANT_ID = "agent"
+```
+
+REST helpers wrap the LangGraph API:
+
+```python
+def create_thread() -> str:
+    resp = requests.post(f"{DEPLOYMENT_URL}/threads", json={}, headers={"Content-Type": "application/json"})
+    resp.raise_for_status()
+    return resp.json()["thread_id"]
+
+def submit_run(thread_id: str, input_data: dict) -> str:
+    payload = {"assistant_id": ASSISTANT_ID, "input": input_data, "stream_mode": "updates"}
+    resp = requests.post(f"{DEPLOYMENT_URL}/threads/{thread_id}/runs", json=payload, ...)
+    return resp.json()["run_id"]
+
+def get_run_state(thread_id: str, run_id: str) -> dict: ...
+def get_thread_state(thread_id: str) -> dict: ...
+```
+
+`create_thread` must send `json={}` — an empty body returns 422.
+
+## Multimodal input
+
+Content is built to match the graph's expected envelope:
+
+```python
+def build_multimodal_content(text, images=None, audio=None) -> list:
+    content = [{"type": "text", "text": text}]
+    # images → {"type": "image", "data": b64, "metadata": {...}, "source_type": "base64", "mime_type": ...}
+    # audio  → {"type": "audio", "data": b64, "source_type": "base64", "mime_type": "audio/webm"}
+    return content
+```
+
+## Polling for results
+
+The UI polls the run rather than streaming:
+
+```python
+while True:
+    run_state = get_run_state(thread_id, run_id)
+    status = run_state.get("status", "unknown")
+    step += 1
+    status_placeholder.write(f"Status: **{status}** · Poll #{step}")
+    if status in ("success", "failed", "error", "cancelled"):
+        break
+    time.sleep(1)
+```
+
+Once the run succeeds, the final answer is pulled out of the thread with a recursive search, because the payload is deeply nested:
+
+```python
+def _find_key_recursive(obj, key: str):
+    ...
+final_report_raw = _find_key_recursive(thread_state, "final_report")
+```
+
+## Speech handling
+
+**`ui/app.py`** calls Sarvam directly:
+
+```python
+client = SarvamAI(api_subscription_key=os.getenv("SARVAM_API_KEY"))
+job = client.speech_to_text_job.create_job(language_code="en-IN", model="saaras:v3", ...)
+```
+
+**`ui/app_v2.py`** delegates to the service layer and wraps the async call for Streamlit:
+
+```python
+def speech_to_text_with_ui(audio_bytes: bytes, file_extension: str = ".webm") -> str | None:
+    async def _async_wrapper():
+        speech_service = await get_speech_service()
+        return await speech_service.speech_to_text(audio_bytes, file_extension)
+    return asyncio.run(_async_wrapper())
+```
+
+Either way, recorded audio is **transcribed to text and the transcript is sent**; raw audio is not forwarded (`audio=None`), because the reasoning node only handles images.
+
+## Pitfalls
+
+- `DEPLOYMENT_URL` is hardcoded to `localhost:2024`; change it in both files if the backend moves.
+- `_find_key_recursive` is a workaround for not knowing the state shape and can return an unrelated key if names collide.
+- `asyncio.run` inside a Streamlit callback breaks if an event loop is already running.
+- `thread_id` lives in `st.session_state`, so all turns share one conversation — expected, but surprising during testing.
+- The "Read Aloud" buttons are manual; TTS is not automatic.

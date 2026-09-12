@@ -1,0 +1,18 @@
+{
+  "name": "Simple Multimodal Voice Agent",
+  "theme": "maple",
+  "colors": {
+    "primary": "#009688",
+    "light": "#009688",
+    "dark": "#009688"
+  },
+  "navigation": {
+    "groups": [
+      { "group": "Getting Started", "pages": ["index", "installation", "quickstart"] },
+      { "group": "Architecture", "pages": ["architecture", "llm-providers", "configuration", "security"] },
+      { "group": "Speech and Voice", "pages": ["speech-services", "livekit-agents", "context-management"] },
+      { "group": "Interfaces", "pages": ["streamlit-ui", "observability"] },
+      { "group": "Operations", "pages": ["testing", "troubleshooting", "dependencies"] }
+    ]
+  }
+}

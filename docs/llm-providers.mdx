@@ -1,0 +1,107 @@
+---
+title: LLM Providers and Resilience
+description: Weighted multi-provider routing, per-provider model configuration, the fallback path, and the circuit breaker plus retry stack.
+---
+
+# LLM Providers and Resilience
+
+Two things live here: how a model is chosen, and what happens when it fails.
+
+## The provider router
+
+`src/flow_agent/llms/LangChainChatLLM.py` exposes:
+
+```python
+async def get_chat_llm(provider: str | None = None, is_summarizer: bool = False) -> BaseChatModel | Runnable
+async def get_vision_models(provider: str | None) -> tuple[BaseChatModel | None, Any]
+async def get_summarization_models(provider: str | None) -> tuple[BaseChatModel | None, Any]
+```
+
+`get_chat_llm` is the public entry point and **returns only the model** — it unpacks and discards the provider tuple internally. The `get_*_models` helpers return `(llm, provider)`.
+
+When no provider is passed, one is chosen by weighted random selection:
+
+```python
+def _get_random_provider():
+    names = list(settings.VISION_PROVIDER_DISTRIBUTION.keys())
+    weights = list(settings.VISION_PROVIDER_DISTRIBUTION.values())
+    return random.choices(names, weights=weights, k=1)[0]
+```
+
+The distributions live in `config.py`:
+
+```python
+VISION_PROVIDER_DISTRIBUTION = {"gemini": 0.7, "openai": 0.01, "zhipu": 0.1, "ollama": 0.2}
+
+SUMMARIZATION_PROVIDER_DISTRIBUTION = {
+    "mistral": 0.59, "ollama": 0.01, "sarvam": 0.2,
+    "gemini": 0.1, "zhipu": 0.09, "openai": 0.01,
+}
+```
+
+## Provider to model mapping
+
+### Vision path
+
+| Provider | Class | Setting | Default |
+|---|---|---|---|
+| `gemini` | `ChatGoogleGenerativeAI` | `GEMINI_VISION_MODEL` | `gemini-2.5-flash-lite` |
+| `openai` | `ChatOpenAI` | `OPENAI_VISION_MODEL` | `gpt-5-nano` |
+| `zhipu` | `ChatOpenAI` at `https://api.z.ai/api/paas/v4/` | `ZHIPU_VISION_MODEL` | `GLM-4.6V-Flash` |
+| `ollama` | `ChatOllama` at `https://ollama.com` | `OLLAMA_VISION_MODEL` | `qwen3-vl:235b-instruct-cloud` |
+
+### Summarization path
+
+| Provider | Class | Setting | Default |
+|---|---|---|---|
+| `mistral` | `ChatMistralAI` | `MISTRAL_SUMMARIZATION_MODEL` | `mistral-medium-2508` |
+| `sarvam` | `SarvamChat(reasoning_effort='low')` | — | — |
+| `zhipu` | `ChatOpenAI` | `ZHIPU_SUMMARIZATION_MODEL` | `GLM-4.7-Flash` |
+| `ollama` | `ChatOllama` | `OLLAMA_SUMMARIZATION_MODEL` | `nemotron-3-nano:30b-cloud` |
+
+Zhipu is implemented with `ChatOpenAI` pointed at a different base URL and key — a common approach for vendors that ship an OpenAI-compatible API.
+
+## Circuit breaking and retries
+
+`src/flow_agent/utils/circuit_breaker_llm.py` stacks two resilience layers:
+
+```python
+breaker = CircuitBreaker(fail_max=5, timeout_duration=timedelta(seconds=30))
+
+async def _should_retry(exc: BaseException) -> bool:
+    return not isinstance(exc, CircuitBreakerError)
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(min=1, max=10),
+    retry=retry_if_exception(_should_retry),
+    reraise=True,
+)
+@breaker
+async def _call_llm(llm, conversation):
+    return await llm.ainvoke(conversation)
+
+async def call_llm_safely(llm, conversation, new_message) -> Any:
+    full_context = conversation + [new_message]
+    try:
+        return await _call_llm(llm, full_context)
+    except Exception:
+        llm = await get_chat_llm(settings.FALLBACK_PROVIDER_IDENTIFIER)
+        return await llm.ainvoke(full_context)
+```
+
+Decorator order matters: `@retry` wraps `@breaker`, so retries are attempted before a failure is counted, and an open circuit fails fast without consuming retries.
+
+`call_llm_safely` takes **three positional arguments**: the model, the prior conversation, and the new message. The new message is appended to the conversation before the call.
+
+## Fallback
+
+When the primary call exhausts retries or the circuit is open, the code falls back to `FALLBACK_PROVIDER_IDENTIFIER` (default `gemini`) and calls it directly with the same full context.
+
+## Pitfalls
+
+- **The circuit breaker is global.** A single module-level instance is shared by every provider, so five failures on one provider open the circuit for all of them for 30 seconds.
+- `call_llm_safely` is not provider-aware; the fallback ignores the weighted distribution and always targets the configured fallback provider.
+- Ollama requires `OLLAMA_API_KEY`. Because Ollama is in the random distribution, the code raises `ValueError` if the key is missing even when Ollama was not explicitly requested.
+- `random.seed(1234)` makes provider selection deterministic across runs — helpful for reproducibility, but it means the "load distribution" does not actually vary between processes.
+- `src/flow_agent/llms/sarvam_openai.py` is a standalone script, not an importable module: it uses a `flow_agent...` import path and performs an API call at import time. Do not import it.

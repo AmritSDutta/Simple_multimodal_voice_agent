@@ -1,0 +1,140 @@
+---
+title: LiveKit Voice Agents
+description: Real-time speech agents built on LiveKit Agents — sessions, typed userdata, function tools, screen share, and the variants in the repo.
+---
+
+# LiveKit Voice Agents
+
+The `src/livekit_*.py` modules implement real-time, interruptible voice conversations using LiveKit Agents, which combines a VAD, STT, LLM, and TTS into a single session.
+
+## The minimal agent
+
+`src/livekit_agent.py` is the smallest complete example:
+
+```python
+class VoiceAgent(Agent):
+    def __init__(self) -> None:
+        super().__init__(
+            instructions="You are a helpful voice assistant...",
+            vad=silero.VAD.load(),
+            stt=groq.STT(model="whisper-large-v3-turbo", language="en"),
+            llm=groq.LLM(model="llama-3.1-8b-instant"),
+            tts=sarvam.TTS(target_language_code="en-IN", model="bulbul:v3", speaker="ishita"),
+        )
+
+    async def on_enter(self):
+        await self.session.generate_reply()
+
+async def entrypoint(ctx: JobContext):
+    session = AgentSession()
+    await session.start(agent=VoiceAgent(), room=ctx.room)
+
+if __name__ == "__main__":
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+```
+
+Plugins are imported from `livekit.plugins`: `groq`, `sarvam`, `silero`, `google`, `openai`, `langchain`.
+
+## Typed userdata
+
+For per-session state, declare a dataclass and parameterize the session:
+
+```python
+@dataclass
+class AgentUserData:
+    ctx: Optional[JobContext] = None
+    domain_state: Optional[SpecializedDomainState] = None
+
+userdata = AgentUserData(ctx=ctx, domain_state=SpecializedDomainState())
+session = AgentSession[AgentUserData](userdata=userdata)
+await session.start(agent=OptimizedTaskAgent(), room=ctx.room)
+```
+
+Two rules follow from this pattern:
+
+1. **Always construct `AgentSession` with typed userdata.** An untyped `AgentSession()` leaves `userdata` unset, and `on_enter` then raises `ValueError: AgentSession userdata is not set`.
+2. **Inside a typed tool, read `context.userdata`, not `context.session.userdata`.** The extra `.session` is a common mistake.
+
+## Function tools
+
+Tools are declared with `@function_tool()`; parameters become the tool's JSON schema.
+
+```python
+@function_tool()
+async def save_preference(self, context: RunContext[AgentUserData], key: str, value: str) -> str:
+    context.userdata.domain_state.set_user_preference(key, value)
+    return f"Saved: {key} = {value}"
+```
+
+### The zero-parameter workaround
+
+A tool with no parameters produces an invalid JSON schema — `required` is present but `properties` is missing — and providers reject it with a 400. The fix is a single defaulted parameter:
+
+```python
+@function_tool()
+async def get_context_stats(self, placeholder: str = "") -> str:
+    ...
+```
+
+The parameter cannot be named `_`: Pydantic rejects leading underscores.
+
+### Tools in the optimized agent
+
+| Tool | Purpose |
+|---|---|
+| `web_search` | Tavily search, URLs stripped before speaking |
+| `calculate` | Safe `eval` with `{"__builtins__": {}}`; compacts context first |
+| `save_preference` | Writes to external state instead of chat context |
+| `get_preference` | Reads from external state |
+| `get_context_stats` | Reports context size and domain-state summary |
+
+## The variants
+
+| File | Purpose |
+|---|---|
+| `src/livekit_context_optimized.py` | The main agent: context management, typed userdata, all tools |
+| `src/livekit_agent.py` | Minimal: Groq LLM, Groq STT, Sarvam TTS |
+| `src/livekit_agent_sarvam_llm.py` | Uses Sarvam's OpenAI-compatible endpoint as the LLM |
+| `src/flow_agent/livekit_agent_langgraph.py` | Two-tool agent with environment-driven model config |
+| `src/livekit_screen_share.py` | Detects screen-share tracks and subscribes to video |
+| `src/livekit_ai_expert.py` | A duplicate of `livekit_context_optimized.py` |
+| `run_livekit_agent.py` | Launcher that sets `sys.path` and starts the optimized agent |
+
+## Running
+
+```bash
+# Terminal 1 — agent worker
+python -m src.livekit_context_optimized dev
+
+# Terminal 2 — voice test client
+python -m src.livekit_context_optimized console
+
+# Or the launcher
+python run_livekit_agent.py
+```
+
+LiveKit's `cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))` provides the `dev` and `console` subcommands.
+
+## Screen share
+
+`src/livekit_screen_share.py` differs from the others: it calls `await ctx.connect()` explicitly and keeps the entrypoint alive:
+
+```python
+@ctx.room.on("track_subscribed")
+def on_track_subscribed(track, publication, participant):
+    if publication.source == TrackSource.SCREEN_SHARE:
+        asyncio.create_task(process_video_track(track))
+
+while ctx.room.isconnected:
+    await asyncio.sleep(1)
+```
+
+`process_video_track` samples frames with `VideoStream` but does not yet feed them to a vision model.
+
+## Pitfalls
+
+- **Run as a module.** `python src/livekit_context_optimized.py` fails with `ModuleNotFoundError: No module named 'src'` because the code imports `from src.livekit_context_manager import ...`.
+- **LiveKit is not declared in `pyproject.toml`.** Install `livekit-agents` and the plugin packages yourself — see [Dependencies](/dependencies).
+- `src/livekit_ai_expert.py` duplicates `livekit_context_optimized.py`; changes must be made in both or one should be deleted.
+- `livekit_agent_sarvam_llm.py` uses `openai.LLM.with_ollama(...)` pointed at `https://api.sarvam.ai` — the method name is misleading; it is not Ollama.
+- `allow_interruptions=True` is set on the optimized agent; this is what enables LiveKit's automatic truncation behaviour.

@@ -1,0 +1,107 @@
+---
+title: Dependencies
+description: What is declared in pyproject.toml and langgraph.json, and the packages the code imports but does not declare.
+---
+
+# Dependencies
+
+There are two dependency manifests, and they are maintained separately:
+
+- `pyproject.toml` — used by `pip install -e .` and `uv sync`.
+- `langgraph.json` — used by the LangGraph Docker build, which does **not** read `pyproject.toml`.
+
+Keep them in sync.
+
+## Declared in pyproject.toml
+
+### Orchestration and models
+
+```
+langgraph>=1.0.0
+langgraph-api>=0.7.28
+langgraph-cli>=0.4.7
+langchain-core>=1.0.5
+langchain-google-genai>=2.0.0
+langchain-ollama>=0.2.0
+langchain-openai>=0.2.0
+langchain-community>=0.3.0
+langchain-sarvam-integration>=0.1.7
+google-genai>=1.51.0
+```
+
+### Resilience and configuration
+
+```
+aiobreaker>=1.2.0
+tenacity>=9.1.2
+pydantic>=2.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.1
+typing-extensions>=4.0.0
+requests>=2.31.0
+```
+
+### Security
+
+```
+presidio-analyzer>=2.2.0
+presidio-anonymizer>=2.2.0
+spacy>=3.0.0
+```
+
+### Speech, UI, and observability
+
+```
+sarvamai>=0.1.0
+streamlit>=1.28.0
+openinference-instrumentation-langchain>=0.1.58
+arize-otel>=0.11.0
+opentelemetry-sdk>=1.38.0
+opentelemetry-exporter-otlp>=1.38.0
+```
+
+### Dev
+
+```
+anyio, mypy, pytest, pytest-asyncio, pytest-cov, ruff, flake8
+```
+
+## Imported but not declared
+
+The code imports these, but they are absent from `pyproject.toml`. Features that depend on them will fail after a clean install until you add them.
+
+| Package | Imported by | Needed for |
+|---|---|---|
+| `livekit-agents` | all `src/livekit_*.py` | the entire voice agent |
+| `livekit-plugins-silero` | `silero.VAD.load()` | VAD |
+| `livekit-plugins-groq` | `groq.STT`, `groq.LLM` | STT and some LLM variants |
+| `livekit-plugins-sarvam` | `sarvam.TTS` | TTS |
+| `livekit-plugins-google` | `google.LLM` | Gemini in voice agents |
+| `livekit-plugins-openai` | `openai.LLM` | OpenAI in voice agents |
+| `langchain-tavily` | `from langchain_tavily import TavilySearch` | web search tool |
+| `langchain-mistralai` | `from langchain_mistralai import ChatMistralAI` | the Mistral summarizer |
+| `arize-phoenix` | `phoenix.evals` in eval tests | evaluation suite |
+
+Install the voice stack with:
+
+```bash
+pip install livekit-agents livekit-plugins-silero livekit-plugins-groq \
+            livekit-plugins-sarvam livekit-plugins-google livekit-plugins-openai \
+            langchain-tavily
+```
+
+## Environment template
+
+`.env.example` documents a subset of what the code reads. Notably missing:
+
+- `TAVILY_API_KEY` — required by the LiveKit web search tool.
+- `GEMINI_API_KEY` — used by the LiveKit agents (`google.LLM`), distinct from `GOOGLE_API_KEY`.
+- `GROQ_API_KEY` — required by every LiveKit agent.
+- `ARIZE_SPACE_ID` and `ARIZE_API_KEY` — needed when Arize tracing is enabled.
+- The `CONTEXT_*` variables for the LiveKit context manager.
+
+## Version notes
+
+- Python 3.10 or newer is required.
+- Node.js is not needed for the project itself; it is only needed to preview these docs with `docs7`.
+- The Docker image uses the `wolfi` distribution, declared as `image_distro` in `langgraph.json`.

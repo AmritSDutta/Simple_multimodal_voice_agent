@@ -1,0 +1,87 @@
+---
+title: Observability and Evaluation
+description: LangSmith tracing, Arize instrumentation over OpenTelemetry, and Phoenix LLM-as-judge evaluation tests.
+---
+
+# Observability and Evaluation
+
+Three layers: LangSmith tracing, Arize instrumentation, and Phoenix-based evaluation tests.
+
+## LangSmith
+
+LangSmith is toggled purely by environment variables, set from settings when the graph module imports:
+
+```python
+import os
+os.environ["LANGSMITH_TRACING_V2"] = settings.ENABLE_LANGSMITH_TRACING_V2
+os.environ["LANGSMITH_PROJECT"] = settings.TRACING_PROJECT_NAME
+```
+
+To enable it:
+
+```bash
+ENABLE_LANGSMITH_TRACING_V2=true
+LANGSMITH_API_KEY=...
+```
+
+Note that `ENABLE_LANGSMITH_TRACING_V2` is a **string** (`"false"` by default) assigned straight to the environment variable.
+
+## Arize
+
+`src/flow_agent/configurations/arize_config.py` exposes `configure_arize()`, which returns immediately unless `ARIZE_TRACING_ENABLED` is true:
+
+```python
+def configure_arize():
+    if not settings.ARIZE_TRACING_ENABLED:
+        return
+
+    from arize.otel import register
+    from openinference.instrumentation.langchain import LangChainInstrumentor
+
+    tracer_provider = register(
+        space_id=os.getenv("ARIZE_SPACE_ID"),
+        api_key=os.getenv("ARIZE_API_KEY"),
+        project_name=settings.TRACING_PROJECT_NAME,
+        set_global_tracer_provider=False,
+        log_to_console=False,
+    )
+    LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
+```
+
+The OpenInference LangChain instrumentor also covers LangGraph, so a single instrumentation call captures the whole graph.
+
+Enable it with:
+
+```bash
+ARIZE_TRACING_ENABLED=true
+ARIZE_SPACE_ID=...
+ARIZE_API_KEY=...
+```
+
+## Evaluation
+
+`tests/end_to_end/arize_evals/` contains LLM-as-judge tests. `test_vision_eval.py` sends an image through the compiled graph and scores the answer with a Phoenix classifier:
+
+```python
+judge_llm = LLM(provider="google", model="gemini-2.5-flash-lite")
+vision_eval = ClassificationEvaluator(
+    name="vision_accuracy",
+    llm=judge_llm,
+    prompt_template=template,
+    choices={"incorrect": 0.0, "correct": 1.0},
+)
+
+scores = vision_eval.evaluate({"input": prompt, "output": answer})
+assert scores[0].score >= 0.9
+```
+
+The test compiles the graph, invokes it with an image from `tests/resources/olap.png`, extracts the last message, and gates on the judge's score.
+
+A second suite, `test_session_eval.py`, covers multi-turn session behaviour.
+
+## Pitfalls
+
+- **`arize-phoenix` is not declared in `pyproject.toml`** even though the evaluation tests import `phoenix.evals`. Install it to run them.
+- Arize and LangSmith are independently toggleable; enabling both sends traces to two destinations.
+- The evaluation tests patch `settings` in three separate modules, a consequence of the global settings singleton — see [Configuration](/configuration).
+- Judge quality depends on the judge model, and a `0.9` threshold is strict.

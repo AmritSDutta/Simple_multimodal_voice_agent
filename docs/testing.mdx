@@ -1,0 +1,106 @@
+---
+title: Testing
+description: Test layout, shared fixtures, how to run the suites, and the lint/type tooling.
+---
+
+# Testing
+
+## Layout
+
+```
+tests/
+├── conftest.py                          # shared fixtures
+├── resources/olap.png                   # image fixture
+├── unit_tests/                          # fast, mocked
+│   ├── test_langchain_llm.py
+│   ├── test_circuit_breaker_llm.py
+│   ├── test_pii_redaction.py
+│   └── test_speech_services.py
+├── integration/
+│   └── test_long_conversation.py        # LiveKit context over 30 turns
+├── end_to_end/
+│   ├── test_graph.py
+│   ├── test_summarization.py
+│   ├── arize_evals/                     # LLM-as-judge
+│   └── speech/test_speech.py
+├── test_livekit_context_management.py
+└── test_multiturn_memory.py
+```
+
+## Fixtures
+
+`tests/conftest.py` provides:
+
+```python
+@pytest.fixture
+def custom_settings():
+    """Override settings via environment variables, restored after the test."""
+    ...
+
+@pytest.fixture
+def custom_settings_with_gemma_3_12b():
+    from src.flow_agent.configurations.config import settings
+    return settings.model_copy(update={
+        "MAX_TRY": 1,
+        "SLEEP_IN_SECONDS": 0,
+        "VISION_PROVIDER_DISTRIBUTION": {"gemini": 1.0, "openai": 0.0, "zhipu": 0.0, "ollama": 0.0},
+        "GEMINI_VISION_MODEL": "gemma-3-12b-it",
+    })
+
+@pytest.fixture
+def image_to_base64_fixture():
+    ...
+```
+
+`custom_settings_with_gemma_3_12b` pins the provider distribution to a single model so tests are deterministic. Because `settings` is a module-level singleton, tests that use it must patch every importing module:
+
+```python
+with patch("src.flow_agent.graph.settings", custom), \
+     patch("src.flow_agent.utils.nodes.settings", custom), \
+     patch("src.flow_agent.llms.LangChainChatLLM.settings", custom):
+    ...
+```
+
+## Running
+
+```bash
+pytest                                   # everything
+pytest -v                                # verbose
+pytest -m "not slow"                     # skip slow tests
+pytest tests/unit_tests/ -v              # unit tests only
+pytest tests/test_livekit_context_management.py tests/integration/test_long_conversation.py -v
+```
+
+The `slow` marker is declared in `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+```
+
+Tag tests with `@pytest.mark.slow` for it to have any effect.
+
+## Coverage
+
+```bash
+pytest --cov=src --cov-report=term-missing
+```
+
+`pytest-cov` is a dev dependency.
+
+## Lint and types
+
+```bash
+ruff check .
+ruff check --fix .
+mypy src/
+```
+
+`ruff` is configured to select `E`, `F`, `T201`, and `UP`, with `E501` (line length) ignored and `UP` skipped for tests.
+
+## Pitfalls
+
+- `@pytest.mark.asyncio` tests silently do nothing without `pytest-asyncio`, which is a dev dependency — install the dev group.
+- The LiveKit context tests exercise real LiveKit classes; without the LiveKit packages installed they will fail to import. See [Dependencies](/dependencies).
+- The evaluation suite requires `arize-phoenix`, which is not declared.
+- Some end-to-end tests hit real providers; they need valid API keys and can be slow.

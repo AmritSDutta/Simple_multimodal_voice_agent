@@ -1,0 +1,127 @@
+---
+title: Speech Services
+description: A provider-agnostic STT/TTS layer with SarvamAI, OpenAI Whisper, and Google GenAI implementations behind one interface.
+---
+
+# Speech Services
+
+Speech-to-text and text-to-speech are abstracted behind a single interface so the UI and graph can switch providers without changes.
+
+## The interface
+
+`src/flow_agent/speech/interface.py`:
+
+```python
+class SpeechService(ABC):
+    @abstractmethod
+    async def speech_to_text(self, audio_bytes: bytes, file_extension: str = ".webm") -> str | None: ...
+
+    @abstractmethod
+    async def text_to_speech(self, text: str) -> list | None: ...
+
+    @property
+    @abstractmethod
+    def provider_name(self) -> str: ...
+```
+
+## The factory
+
+`src/flow_agent/speech/factory.py` maps provider names to classes and applies settings-based defaults:
+
+```python
+_PROVIDERS = {
+    "sarvam": SarvamAiSpeechService,
+    "openai": OpenAiSpeechService,
+    "gemini": GenAiSpeechService,
+}
+
+async def get_speech_service(provider: str | None = None, **kwargs) -> SpeechService
+def list_available_providers() -> list[str]
+```
+
+If `provider` is `None`, `settings.SPEECH_PROVIDER` is used (default `sarvam`). Names are normalized through an alias map, so `sarvamai`, `sarvam_ai`, and `zai` all resolve to `sarvam`, and `genai`, `gen_ai`, and `google` resolve to `gemini`.
+
+```python
+speech = await get_speech_service()                 # default provider
+speech = await get_speech_service("openai")         # explicit
+speech = await get_speech_service("sarvam", language="hi-IN")
+```
+
+## Providers
+
+### SarvamAI (default)
+
+`src/flow_agent/speech/providers/sarvam_ai.py`. STT is **job-based**: create a job, upload, start, wait, download, then parse the JSON transcript.
+
+```python
+job = self.client.speech_to_text_job.create_job(language_code=..., model=...)
+job.upload_files(file_paths=[temp_file_path])
+job.start()
+final_status = job.wait_until_complete()
+job.download_outputs(output_dir=output_dir)
+```
+
+TTS is a single call to `client.text_to_speech.convert(...)` returning `response.audios`.
+
+### OpenAI
+
+`src/flow_agent/speech/providers/open_ai.py`. Writes the audio to a temporary file and calls:
+
+```python
+self.client.audio.transcriptions.create(model=self._stt_model, file=audio_file, language=self._language[:2])
+self.client.audio.speech.create(model=self._tts_model, voice=self._speaker, input=text)
+```
+
+The language is truncated to two characters (`"en-IN"` becomes `"en"`).
+
+### Google GenAI
+
+`src/flow_agent/speech/providers/gen_ai.py`. Raw PCM is wrapped in a WAV header before transcription:
+
+```python
+def add_wav_header(pcm_data: bytes, sample_rate: int, channels: int = 1, bit_depth: int = 16) -> bytes:
+    ...
+```
+
+TTS requests audio output explicitly:
+
+```python
+config=types.GenerateContentConfig(
+    response_modalities=["AUDIO"],
+    speech_config=types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=self._speaker)
+        )
+    ),
+)
+```
+
+## Default models and voices
+
+| Provider | STT | TTS | Voice |
+|---|---|---|---|
+| SarvamAI | `saaras:v3` | `bulbul:v3` | `shubh` |
+| OpenAI | `whisper-1` | `gpt-4o-mini-tts` | `coral` |
+| Google GenAI | `gemini-3-flash-preview` | `gemini-2.5-flash-preview-tts` | `Kore` |
+
+All values come from `Settings` and can be overridden per call through `get_speech_service(...)` keyword arguments.
+
+## Using it
+
+```python
+from src.flow_agent.speech import get_speech_service
+
+service = await get_speech_service()
+transcript = await service.speech_to_text(audio_bytes)
+audio_list = await service.text_to_speech(transcript or "Hello")
+```
+
+Both `ui/app.py` and `ui/app_v2.py` wrap these async calls for Streamlit — see [Streamlit UI](/streamlit-ui).
+
+## Pitfalls
+
+- **API keys are read at construction.** `get_speech_service("sarvam")` raises `ValueError` if `SARVAM_API_KEY` is unset.
+- All three implementations **catch exceptions and return `None`** rather than raising; callers must handle `None`.
+- The abstract interface defaults `file_extension` to `.webm`, but the Google implementation defaults to `.wav` — the audio must actually match the declared format.
+- Sarvam STT is asynchronous and can be slow because the client polls a job; OpenAI is a single request.
+- `text_to_speech` returns a list for interface consistency; every provider returns base64 strings inside that list.

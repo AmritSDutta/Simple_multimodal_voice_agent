@@ -1,0 +1,149 @@
+---
+title: Architecture
+description: The LangGraph state machine — nodes, reducers, conditional routing, and the shared State schema.
+---
+
+# Architecture
+
+The agent is a LangGraph `StateGraph`: nodes are async functions that read and return parts of a shared, typed state.
+
+## The graph definition
+
+`src/flow_agent/graph.py` builds the graph:
+
+```python
+class Context(TypedDict):
+    my_configurable_param: str
+
+graph = (
+    StateGraph(State, context_schema=Context)
+    .add_node("entry", entry_node)
+    .add_node("input_validator", call_input_validation)
+    .add_node("reasoning",
+              call_langchain_reasoning_model if settings.REASONING_NODE_PREFERENCE == 'langchain'
+              else call_gemini_reasoning_model)
+    .add_node("summarizer", call_langchain_summarizer)
+    .add_edge(START, "entry")
+    .add_edge("entry", "input_validator")
+    .add_conditional_edges("input_validator", route_after_validation, {"reasoning": "reasoning", END: END})
+    .add_conditional_edges("reasoning", should_summarize, {"summarizer": "summarizer", END: END})
+    .add_edge("summarizer", END)
+)
+```
+
+`graph` is a `StateGraph`, **not** compiled. `langgraph.json` points at it directly, but in-process callers must compile it:
+
+```python
+compiled_graph = graph.compile()
+```
+
+## The state
+
+`src/flow_agent/utils/state.py`:
+
+```python
+class State(TypedDict):
+    retry_count: Annotated[int, add]
+    messages: Annotated[list[BaseMessage], add_messages]
+    issue: str
+    final_report: str
+    input_valid: bool
+    conversation_summary: str
+```
+
+`Annotated[..., add_messages]` and `Annotated[int, add]` are **reducers**. When a node returns `{"messages": [...]}`, LangGraph appends rather than replaces. To replace the entire list, wrap the value:
+
+```python
+from langgraph.types import Overwrite
+
+return {"messages": Overwrite(new_messages), "conversation_summary": summary}
+```
+
+The summarizer uses `Overwrite` because it deliberately collapses history.
+
+## Nodes
+
+| Node | Function | Responsibility |
+|---|---|---|
+| `entry` | `entry_node` | Normalize content to `[{type, ...}]`, optionally redact PII |
+| `input_validator` | `call_input_validation` | Pattern scan + moderation; sets `input_valid` |
+| `reasoning` | `call_langchain_reasoning_model` or `call_gemini_reasoning_model` | Build the prompt, call the LLM, redact the reply |
+| `summarizer` | `call_langchain_summarizer` | Compress old turns, keep recent messages and images |
+
+Nodes that need runtime context take two arguments:
+
+```python
+async def call_langchain_reasoning_model(state: State, runtime: Runtime[Context]) -> State:
+    ...
+```
+
+## Routing
+
+Conditional edges are plain functions returning a node name or `END`:
+
+```python
+async def route_after_validation(state: State) -> str:
+    return "reasoning" if state["input_valid"] else END
+
+async def should_summarize(state: State) -> str:
+    if len(state.get("messages", [])) >= settings.SUMMARY_MESSAGE_THRESHOLD:
+        return "summarizer"
+    return END
+```
+
+## Multimodal content
+
+`entry_node` normalizes a bare string into the canonical envelope, and the reasoning nodes parse it back out:
+
+```python
+HumanMessage(content=[
+    {"type": "text", "text": "what is there in the image"},
+    {
+        "type": "image",
+        "data": "<base64>",
+        "metadata": {"filename": "olap.png"},
+        "source_type": "base64",
+        "mime_type": "image/png",
+    },
+])
+```
+
+`prepare_llm_input` converts this into a data-URI `image_url` part and enforces `MAX_IMAGES_PER_REQUEST`:
+
+```python
+async def prepare_llm_input(text_prompt: str, media_b64s: list[Any] | None) -> list[dict]:
+    message_content = [{"type": "text", "text": text_prompt}]
+    if media_b64s:
+        for b64_image in media_b64s[:settings.MAX_IMAGES_PER_REQUEST]:
+            message_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
+            })
+    return message_content
+```
+
+## Summarization
+
+`call_langchain_summarizer` classifies messages into text-only and media-containing buckets, summarizes the text, and keeps the most recent media:
+
+```python
+messages_to_summarize = messages[:-2] if len(messages) > 2 else []
+recent_messages = messages[-2:] if len(messages) > 2 else messages
+```
+
+It then replaces the message list with a summary `AIMessage` followed by the retained recent messages, limited by `MAX_IMAGES_PER_REQUEST`.
+
+## Prompt enrichment
+
+`_enhance_with_tool_search` appends DuckDuckGo results to the prompt — but **skips search entirely when an image is present**, since the query is assumed to be about the image:
+
+```python
+if mime_type:
+    return searchable_text
+```
+
+## Pitfalls
+
+- State is typed but permissive: `retry_count` is defined and reduced yet never incremented anywhere in the code.
+- `prepare_llm_input` hardcodes `image/jpeg` in the data URI regardless of the incoming `mime_type`.
+- The `-2:` retention in the summarizer is a magic number; the split between "summarize" and "keep" is not configurable.

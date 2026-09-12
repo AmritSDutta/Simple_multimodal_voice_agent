@@ -1,0 +1,110 @@
+---
+title: Configuration
+description: The Pydantic Settings class, every important setting and its default, and the testability caveats of the global singleton.
+---
+
+# Configuration
+
+All runtime configuration is a single Pydantic `BaseSettings` class.
+
+## The settings class
+
+`src/flow_agent/configurations/config.py`:
+
+```python
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+    ...
+
+settings = Settings()
+```
+
+- `env_file=".env"` — values are read from `.env`.
+- `case_sensitive=True` — an environment variable must match the field name exactly.
+- `extra="ignore"` — unrelated environment variables do not raise.
+
+A module-level `settings` instance is imported throughout the codebase.
+
+## Key settings
+
+### Circuit breaker and routing
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `MAX_TRY` | `3` | Retry attempts |
+| `SLEEP_IN_SECONDS` | `1` | Base backoff |
+| `REASONING_NODE_PREFERENCE` | `langchain` | `langchain` or `genai` — selects the reasoning node |
+| `FALLBACK_PROVIDER_IDENTIFIER` | `gemini` | Provider used when the primary call fails |
+
+### Models
+
+| Setting | Default |
+|---|---|
+| `GEMINI_VISION_MODEL` | `gemini-2.5-flash-lite` |
+| `OPENAI_VISION_MODEL` | `gpt-5-nano` |
+| `ZHIPU_VISION_MODEL` | `GLM-4.6V-Flash` |
+| `ZHIPU_SUMMARIZATION_MODEL` | `GLM-4.7-Flash` |
+| `OLLAMA_VISION_MODEL` | `qwen3-vl:235b-instruct-cloud` |
+| `OLLAMA_SUMMARIZATION_MODEL` | `nemotron-3-nano:30b-cloud` |
+| `MISTRAL_SUMMARIZATION_MODEL` | `mistral-medium-2508` |
+
+See [LLM Providers and Resilience](/llm-providers) for the distributions that weight these.
+
+### Safety
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `MODERATION_API_CHECK_REQ` | `True` | Call the OpenAI moderation API |
+| `MODERATION_MODEL` | `omni-moderation-latest` | Moderation model (text + image) |
+| `IS_INPUT_VALIDATION_ENABLED` | `False` | Master switch for pattern + moderation validation |
+| `IS_PII_REDACTION_ENABLED` | `False` | Master switch for Presidio redaction |
+| `PII_CONFIDENCE_THRESHOLD` | `0.5` | Minimum score to treat text as PII |
+| `MAX_IMAGES_PER_REQUEST` | `2` | Images retained per request |
+
+### Speech
+
+| Setting | Default |
+|---|---|
+| `SPEECH_PROVIDER` | `sarvam` |
+| `SARVAM_STT_MODEL` / `SARVAM_TTS_MODEL` | `saaras:v3` / `bulbul:v3` |
+| `SARVAM_SPEAKER` / `SARVAM_LANGUAGE` | `shubh` / `en-IN` |
+| `SARVAM_TTS_PACE` / `SARVAM_TTS_SAMPLE_RATE` | `1.1` / `22050` |
+| `OPENAI_STT_MODEL` / `OPENAI_TTS_MODEL` | `whisper-1` / `gpt-4o-mini-tts` |
+| `OPENAI_SPEAKER` | `coral` |
+| `GENAI_STT_MODEL` / `GENAI_TTS_MODEL` | `gemini-3-flash-preview` / `gemini-2.5-flash-preview-tts` |
+| `GENAI_SPEAKER` | `Kore` |
+
+### Summarization and tracing
+
+| Setting | Default |
+|---|---|
+| `SUMMARY_MESSAGE_THRESHOLD` | `10` |
+| `SUMMARY_PROVIDER_PREFERENCE` | `langchain` |
+| `ENABLE_LANGSMITH_TRACING_V2` | `"false"` |
+| `TRACING_PROJECT_NAME` | `multimodal_voice_agent` |
+| `ARIZE_TRACING_ENABLED` | `False` |
+
+## The singleton caveat
+
+Because every module does `from ...config import settings`, changing configuration in a test means patching the reference in **each importing module**:
+
+```python
+with patch("src.flow_agent.graph.settings", custom), \
+     patch("src.flow_agent.utils.nodes.settings", custom), \
+     patch("src.flow_agent.llms.LangChainChatLLM.settings", custom):
+    ...
+```
+
+This is a known design smell. Passing a `Settings` instance as a parameter, or exposing a `get_settings()` accessor, would remove the need for the multi-module patch.
+
+## Pitfalls
+
+- **Security defaults are off.** `IS_PII_REDACTION_ENABLED` and `IS_INPUT_VALIDATION_ENABLED` both default to `False`, so the safety layers are opt-in.
+- `ENABLE_LANGSMITH_TRACING_V2` is a **string** (`"false"`), not a boolean, and is assigned straight to an environment variable.
+- `Settings()` is constructed at import time, so `.env` must be readable (or every field must have a default) before the module imports.
+- The model settings exist for every provider even if that provider is never selected; changing a distribution does not remove the need for the corresponding API key.

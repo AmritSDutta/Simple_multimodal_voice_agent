@@ -1,0 +1,118 @@
+---
+title: Security
+description: Three defense layers — regex-based input validation, the OpenAI moderation API, and Presidio PII redaction.
+---
+
+# Security
+
+The pipeline applies three independent layers, in order: **input validation**, **moderation**, and **PII redaction**.
+
+## Layer 1 — Pattern-based input validation
+
+`src/flow_agent/utils/input_validation.py` holds a dictionary of regex families, compiled once at import:
+
+```python
+MALICIOUS_PATTERNS = {
+    "shell_injection": [...],
+    "docker_abuse": [...],
+    "sql_injection": [...],
+    "path_traversal": [...],
+    "system_commands": [...],
+    "code_execution": [...],
+    "malicious_keywords": ["malware", "virus", "ransomware", "backdoor", ...],
+    "windows_abuse": [...],
+}
+```
+
+The Windows set is the most specific, covering encoded PowerShell, shadow-copy deletion, and common LOLBINs:
+
+```python
+r"\bpowershell\s+-enc\b",
+r"\bvssadmin\s+delete\s+shadows\b",
+r"\brundll32\b",
+r"\bcertutil\s+-decode\b",
+```
+
+The entry point returns `True` when input is **safe**:
+
+```python
+async def scan_for_vulnerability(user_input: HumanMessage | str) -> bool
+```
+
+It lowercases and stringifies the message, then tests each compiled pattern. If `MODERATION_API_CHECK_REQ` is `True`, it then defers to the moderation call.
+
+## Layer 2 — OpenAI moderation
+
+```python
+async def get_moderation_api_feedback_on_input(user_input: BaseMessage | str) -> bool
+```
+
+Builds a mixed text/image prompt and calls the moderation endpoint:
+
+```python
+response = await client.moderations.create(model=settings.MODERATION_MODEL, input=prompt)
+for res in response.results:
+    if res.flagged:
+        return False
+```
+
+Because `MODERATION_MODEL` defaults to `omni-moderation-latest`, both text and images can be screened. On **any exception** the function returns `False` — it fails closed, so an OpenAI outage blocks input when validation is enabled.
+
+## Layer 3 — PII redaction
+
+`src/flow_agent/utils/pii_redaction.py` wraps Microsoft Presidio:
+
+```python
+class PII_Redactor:
+    def __init__(self, confidence_threshold: float = settings.PII_CONFIDENCE_THRESHOLD):
+        self.analyzer = AnalyzerEngine(supported_languages=["en"])
+        self.anonymizer = AnonymizerEngine()
+
+    async def do_pii_redaction(self, messages: List[BaseMessage]) -> List[BaseMessage]
+```
+
+It runs the analyzer and anonymizer in threads (`asyncio.to_thread`) so the event loop is not blocked, and copies each message with `model_copy()` to avoid mutating the original:
+
+```python
+async def _do_pii_redaction_on_message(self, message: BaseMessage) -> BaseMessage:
+    new_message = message.model_copy()
+    content = new_message.content
+    if isinstance(content, str):
+        analysis, detected = await self._is_pii_data_detected(content)
+        if detected:
+            new_message.content = await self._sanitize(content, analysis)
+    ...
+```
+
+Only `{"type": "text"}` items are redacted; images are left untouched. Redaction runs twice: on the user message in `entry_node`, and on the model's reply in `process_response`.
+
+## Wiring into the graph
+
+Validation is gated and short-circuits when disabled:
+
+```python
+async def call_input_validation(state: State, runtime: Runtime[Context]) -> dict:
+    if not settings.IS_INPUT_VALIDATION_ENABLED:
+        return {"input_valid": True}
+    is_safe = await scan_for_vulnerability(user_message[-1])
+    ...
+    return {"input_valid": False, "messages": AIMessage("Unsafe user prompt detected...")}
+```
+
+`route_after_validation` then sends unsafe input to `END` instead of the reasoning node.
+
+## Enable the layers
+
+```bash
+IS_INPUT_VALIDATION_ENABLED=true
+IS_PII_REDACTION_ENABLED=true
+```
+
+## Pitfalls
+
+- **Both layers are off by default.** Out of the box the agent performs no validation and no redaction.
+- PII redaction is **English only** (`supported_languages=["en"]`).
+- A `PII_Redactor()` is constructed in `entry_node` per request, which re-initializes the spaCy pipeline and costs latency.
+- The moderation image branch checks for `"image_url"`, while the project's canonical content type is `"image"`. Images may bypass moderation — verify before relying on it for image safety.
+- Validation patterns are hardcoded strings rather than configuration.
+- Fail-closed moderation means an upstream OpenAI incident can reject all traffic.

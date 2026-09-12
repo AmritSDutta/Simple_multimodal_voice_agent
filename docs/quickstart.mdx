@@ -1,0 +1,100 @@
+---
+title: Quickstart
+description: Bring up the LangGraph multimodal agent with its Streamlit UI, then the LiveKit voice agent.
+---
+
+# Quickstart
+
+## Agent 1 — LangGraph multimodal agent
+
+### 1. Start the backend
+
+```bash
+langgraph up --watch
+```
+
+`langgraph up` serves the graph declared in `langgraph.json`:
+
+```json
+{
+  "graphs": { "agent": "./src/flow_agent/graph.py:graph" },
+  "env": ".env",
+  "image_distro": "wolfi"
+}
+```
+
+The Streamlit UI expects it at `http://localhost:2024`.
+
+### 2. Start the web UI
+
+```bash
+streamlit run ui/app.py
+```
+
+The UI opens on `http://localhost:8501`.
+
+### 3. Interact
+
+- **Text** — type a question and press **Run**.
+- **Images** — upload one or more files; they are sent as base64 in the multimodal content array.
+- **Voice** — record with the microphone; the audio is transcribed to text before submission (raw audio is never forwarded to the graph).
+
+All turns share a single `thread_id` stored in `st.session_state`, so the agent keeps context across submissions.
+
+## Agent 2 — LiveKit voice agent
+
+### 1. Install the LiveKit extras
+
+These are not in `pyproject.toml`:
+
+```bash
+pip install livekit-agents livekit-plugins-silero livekit-plugins-groq \
+            livekit-plugins-sarvam livekit-plugins-google livekit-plugins-openai \
+            langchain-tavily
+```
+
+### 2. Set the keys
+
+```bash
+export GROQ_API_KEY="..."
+export SARVAM_API_KEY="..."
+export GEMINI_API_KEY="..."
+export TAVILY_API_KEY="..."
+```
+
+### 3. Run as a module
+
+```bash
+# Terminal 1 — the agent worker
+python -m src.livekit_context_optimized dev
+
+# Terminal 2 — an interactive voice client
+python -m src.livekit_context_optimized console
+```
+
+Always invoke it with `python -m`. Running `python src/livekit_context_optimized.py` fails with `ModuleNotFoundError: No module named 'src'`.
+
+A launcher script that does the same thing is available:
+
+```bash
+python run_livekit_agent.py
+```
+
+## Verifying the install
+
+```bash
+# Imports resolve
+python -c "from src.flow_agent.speech import get_speech_service; print('speech ok')"
+python -c "from src.livekit_context_manager import ContextManager; print('context ok')"
+
+# Tests
+pytest -q
+```
+
+If the LiveKit import fails, you skipped the extras in step 1 — see [Dependencies](/dependencies).
+
+## Next steps
+
+- [Architecture](/architecture) — how the graph routes requests.
+- [Configuration](/configuration) — every tunable setting.
+- [Troubleshooting](/troubleshooting) — common failures and fixes.
